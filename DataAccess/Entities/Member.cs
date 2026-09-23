@@ -11,8 +11,6 @@ public partial class Member
 
     public string? FullName { get; set; }
 
-    public string? Phone { get; set; }
-
     public DateOnly? DateOfBirth { get; set; }
 
     public string? AvatarUrl { get; set; }

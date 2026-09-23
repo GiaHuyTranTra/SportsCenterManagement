@@ -28,7 +28,7 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
-    [HttpPost]
+    [HttpPost("Logout")]
     public async Task<IActionResult> Logout()
     {
         string? rawToken = await HttpContext.GetTokenAsync("access_token");
@@ -38,13 +38,13 @@ public class AuthController : ControllerBase
 
 
     [AllowAnonymous]
-    [HttpPost]
-    public async Task<IActionResult> LoginAdmin(LoginRequestAPIViewModel model)
+    [HttpPost("Login_center_manager")]
+    public async Task<IActionResult> LoginCenterManager(LoginRequestAPIViewModel model)
     {
         if (ModelState.IsValid)
         {
             //check login
-            LoginResponseAPIViewModel result = await _authService.LoginAdminAsync(model);
+            LoginResponseAPIViewModel? result = await _authService.LoginCenterManagerAsync(model);
             if (result != null)
             {
                 //gen toiken
@@ -54,6 +54,75 @@ public class AuthController : ControllerBase
             else return BadRequest("Email or password is not corrected");
            
            
+        }
+        else
+        {
+            return BadRequest();
+        }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("Login_coach")]
+    public async Task<IActionResult> LoginCoach(LoginRequestAPIViewModel model)
+    {
+        if (ModelState.IsValid)
+        {
+            LoginResponseAPIViewModel? result = await _authService.LoginCoachAsync(model);
+            if (result != null)
+            {
+                string token = _accessToken.GenerateAccessToken(result);
+                return Ok(token);
+            }
+            else
+            {
+                return BadRequest("Email or password is not corrected");
+            }
+        }
+        else
+        {
+            return BadRequest();
+        }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("Login_member")]
+    public async Task<IActionResult> LoginMember(LoginRequestAPIViewModel model)
+    {
+        if (ModelState.IsValid)
+        {
+            LoginResponseAPIViewModel? result = await _authService.LoginMemberAsync(model);
+            if (result != null)
+            {
+                string token = _accessToken.GenerateAccessToken(result);
+                return Ok(token);
+            }
+            else
+            {
+                return BadRequest("Email or password is not corrected");
+            }
+        }
+        else
+        {
+            return BadRequest();
+        }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("Login_receptionist")]
+    public async Task<IActionResult> LoginReceptionist(LoginRequestAPIViewModel model)
+    {
+        if (ModelState.IsValid)
+        {
+            LoginResponseAPIViewModel? result = await _authService.LoginReceptionistAsync(model);
+            if (result != null)
+            {
+                string token = _accessToken.GenerateAccessToken(result);
+                return Ok(token);
+            }
+            else
+            {
+                return BadRequest("Email or password is not corrected");
+            }
         }
         else
         {

@@ -123,9 +123,9 @@ public class AuthService : IAuthService
 
 
     }
-    public async Task<LoginResponseAPIViewModel?> LoginAdminAsync(LoginRequestAPIViewModel request)
+    public async Task<LoginResponseAPIViewModel?> LoginCenterManagerAsync(LoginRequestAPIViewModel request)
     {
-        var role = await _context.Roles.Where(q => q.Name == "Admin").FirstOrDefaultAsync();
+        var role = await _context.Roles.Where(q => q.Name == "CenterManager").FirstOrDefaultAsync();
         var account = await _context.Accounts.Where(q => q.Email == request.Email && q.RoleId == role.Id).FirstOrDefaultAsync();
 
         if (account is null || account.IsLocked ||

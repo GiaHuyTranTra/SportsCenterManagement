@@ -19,6 +19,8 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<AuditLog> AuditLogs { get; set; }
 
+    public virtual DbSet<CenterManager> CenterManagers { get; set; }
+
     public virtual DbSet<Coach> Coaches { get; set; }
 
     public virtual DbSet<Member> Members { get; set; }
@@ -51,8 +53,8 @@ public partial class SportsCenterManagementContext : DbContext
             entity.Property(e => e.PasswordHash)
                 .HasMaxLength(255)
                 .IsUnicode(false);
-            entity.Property(e => e.RoleId)
-                .HasMaxLength(400)
+            entity.Property(e => e.Phone)
+                .HasMaxLength(10)
                 .IsUnicode(false);
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
@@ -94,6 +96,24 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasConstraintName("FK_AuditLog_Account");
         });
 
+        modelBuilder.Entity<CenterManager>(entity =>
+        {
+            entity.HasKey(e => e.AccountId).HasName("PK__CenterMa__349DA5A64807BEB6");
+
+            entity.ToTable("CenterManager");
+
+            entity.Property(e => e.AccountId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.FullName).HasMaxLength(100);
+
+            entity.HasOne(d => d.Account).WithOne(p => p.CenterManager)
+                .HasForeignKey<CenterManager>(d => d.AccountId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CenterManager_Account");
+        });
+
         modelBuilder.Entity<Coach>(entity =>
         {
             entity.HasKey(e => e.AccountId).HasName("PK__Coach__349DA5A65C9861FD");
@@ -105,9 +125,6 @@ public partial class SportsCenterManagementContext : DbContext
                 .IsUnicode(false);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
             entity.Property(e => e.FullName).HasMaxLength(100);
-            entity.Property(e => e.Phone)
-                .HasMaxLength(10)
-                .IsUnicode(false);
             entity.Property(e => e.Specialization).HasMaxLength(255);
             entity.Property(e => e.WorkSchedule).HasMaxLength(500);
 
@@ -136,9 +153,6 @@ public partial class SportsCenterManagementContext : DbContext
             entity.Property(e => e.MemberCode)
                 .HasMaxLength(30)
                 .IsUnicode(false);
-            entity.Property(e => e.Phone)
-                .HasMaxLength(10)
-                .IsUnicode(false);
 
             entity.HasOne(d => d.Account).WithOne(p => p.Member)
                 .HasForeignKey<Member>(d => d.AccountId)
@@ -157,9 +171,6 @@ public partial class SportsCenterManagementContext : DbContext
                 .IsUnicode(false);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
             entity.Property(e => e.FullName).HasMaxLength(100);
-            entity.Property(e => e.Phone)
-                .HasMaxLength(10)
-                .IsUnicode(false);
             entity.Property(e => e.WorkShift).HasMaxLength(100);
 
             entity.HasOne(d => d.Account).WithOne(p => p.Receptionist)
@@ -170,15 +181,11 @@ public partial class SportsCenterManagementContext : DbContext
 
         modelBuilder.Entity<Role>(entity =>
         {
-            entity.HasKey(e => e.Id).HasName("PK__Role__3214EC07554E50B3");
-
             entity.ToTable("Role");
 
             entity.HasIndex(e => e.Name, "UQ__Role__737584F616AD49EB").IsUnique();
 
-            entity.Property(e => e.Id)
-                .HasMaxLength(400)
-                .IsUnicode(false);
+            entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.Name).HasMaxLength(50);
         });
 

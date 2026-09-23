@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using NSwag;
 using NSwag.Generation.Processors.Security;
+using Services.AccountService;
 using Services.AccessTokenService;
 using Services.AuthService;
 using Services.PasswordHashService;
@@ -20,9 +21,9 @@ public class Program
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
-        builder.Services.AddMemoryCache();
         builder.Services.AddControllers();
-        
+        builder.Services.AddMemoryCache();
+
         builder.Services.AddDbContext<SportsCenterManagementContext>(options =>
             options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -31,9 +32,6 @@ public class Program
             ?? throw new InvalidOperationException("Missing Jwt configuration.");
 
         builder.Services.Configure<JwtOptions>(jwtSection);
-      
-
-
 
         builder.Services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -53,8 +51,6 @@ public class Program
                     RoleClaimType = System.Security.Claims.ClaimTypes.Role,
                     ClockSkew = TimeSpan.Zero
                 };
-
-               
             });
 
         builder.Services.AddAuthorization();
@@ -71,24 +67,29 @@ public class Program
             document.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("Bearer"));
         });
 
-
-
-        // 1. Thay thế DI mặc định của .NET bằng Autofac Factory
         builder.Host.UseServiceProviderFactory(new AutofacServiceProviderFactory());
 
-        // 2. Sử dụng ConfigureContainer để đăng ký các dịch vụ với Autofac Container
-        builder.Host.ConfigureContainer<ContainerBuilder>(builder =>
+        builder.Host.ConfigureContainer<ContainerBuilder>(containerBuilder =>
         {
-               builder.RegisterType<AuthService>().As<IAuthService>();
-            builder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
-            builder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
-            builder.RegisterType<AuthFilter>().AsSelf();
+            containerBuilder.RegisterType<AccountService>().As<IAccountService>();
+            containerBuilder.RegisterType<AuthService>().As<IAuthService>();
+            containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
+            containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
+            containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 
         var app = builder.Build();
 
-        app.UseOpenApi();
-        app.UseSwaggerUi();
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseOpenApi();
+            app.UseSwaggerUi();
+            app.UseReDoc(options =>
+            {
+                options.Path = "/redoc";
+            });
+        }
+
         app.UseHttpsRedirection();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -96,8 +97,4 @@ public class Program
 
         app.Run();
     }
-
-  
-
-   
 }

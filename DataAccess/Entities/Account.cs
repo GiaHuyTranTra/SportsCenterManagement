@@ -7,8 +7,6 @@ public partial class Account
 {
     public string Id { get; set; } = null!;
 
-    public string RoleId { get; set; } = null!;
-
     public string Email { get; set; } = null!;
 
     public string PasswordHash { get; set; } = null!;
@@ -23,7 +21,13 @@ public partial class Account
 
     public DateTime? UpdatedAt { get; set; }
 
+    public string? Phone { get; set; }
+
+    public int RoleId { get; set; }
+
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
+
+    public virtual CenterManager? CenterManager { get; set; }
 
     public virtual Coach? Coach { get; set; }
 

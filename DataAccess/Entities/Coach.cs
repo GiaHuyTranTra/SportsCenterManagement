@@ -9,8 +9,6 @@ public partial class Coach
 
     public string FullName { get; set; } = null!;
 
-    public string? Phone { get; set; }
-
     public string? Specialization { get; set; }
 
     public string? WorkSchedule { get; set; }

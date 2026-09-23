@@ -9,8 +9,6 @@ public partial class Receptionist
 
     public string FullName { get; set; } = null!;
 
-    public string? Phone { get; set; }
-
     public string? WorkShift { get; set; }
 
     public DateTime CreatedAt { get; set; }
