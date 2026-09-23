@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="APIViewModel/APIViewModel.csproj" />
+  <Project Path="DataAccess/DataAccess.csproj" />
+  <Project Path="Services/Services.csproj" />
+  <Project Path="SportsCenterManagement/SportsCenterManagement.csproj" />
+</Solution>
