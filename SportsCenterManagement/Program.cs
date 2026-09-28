@@ -9,6 +9,8 @@ using NSwag.Generation.Processors.Security;
 using Services.AccountService;
 using Services.AccessTokenService;
 using Services.AuthService;
+using Services.Implementations;
+using Services.Interfaces;
 using Services.PasswordHashService;
 using Services.Utils;
 using SportsCenterManagement.Filter;
@@ -75,6 +77,10 @@ public class Program
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
+            containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
+            containerBuilder.RegisterType<CounterRegistrationService>().As<ICounterRegistrationService>();
+            containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
+            containerBuilder.RegisterType<EmailService>().As<IEmailService>();
             containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 
