@@ -35,14 +35,6 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<MembershipInvoice> MembershipInvoices { get; set; }
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        if (!optionsBuilder.IsConfigured)
-        {
-            optionsBuilder.UseSqlServer("Server=localhost\\SQLEXPRESS01;User Id=sa;Password=12345;Database=SportsCenterManagement;Encrypt=False;");
-        }
-    }
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Account>(entity =>
