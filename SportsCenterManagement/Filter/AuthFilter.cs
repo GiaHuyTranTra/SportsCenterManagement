@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Caching.Memory;
@@ -18,6 +19,15 @@ namespace SportsCenterManagement.Filter
             ActionExecutingContext context,
             ActionExecutionDelegate next)
         {
+            Endpoint? endpoint = context.HttpContext.GetEndpoint();
+            IAllowAnonymous? allowAnonymous = endpoint?.Metadata.GetMetadata<IAllowAnonymous>();
+
+            if (allowAnonymous is not null)
+            {
+                await next();
+                return;
+            }
+
             string? rawToken = await context.HttpContext.GetTokenAsync("access_token");
             string? blockedToken = _cache.Get<string>("blacklist-" + rawToken);
 

@@ -12,11 +12,10 @@ internal static class AuthTestData
 
     internal static Account CreateAccount(string password = "CorrectPassword123!")
     {
-        var role = new Role
+        Role role = new Role
         {
-            Id = "role-member",
-            Name = "Member",
-            IsActive = true
+            Id = 3,
+            Name = "Member"
         };
 
         return new Account

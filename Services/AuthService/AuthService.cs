@@ -21,20 +21,60 @@ public class AuthService : IAuthService
         _passwordHashService = passwordHashService;
     }
 
-    public async Task<LoginResponseAPIViewModel?> LoginMemberAsync(LoginRequestAPIViewModel request)
+    public Task<LoginResponseAPIViewModel?> LoginMemberAsync(LoginRequestAPIViewModel request)
     {
-        var role = await _context.Roles.Where(q => q.Name == "Member").FirstOrDefaultAsync();
-        var account = await _context.Accounts.Where(q => q.Email == request.Email && q.RoleId == role.Id).FirstOrDefaultAsync();
+        return LoginByRoleAsync(request, "Member");
+    }
 
-        if (account is null || account.IsLocked ||
-            !string.Equals(account.Status, "Active", StringComparison.OrdinalIgnoreCase))
+    public Task<LoginResponseAPIViewModel?> LoginReceptionistAsync(LoginRequestAPIViewModel request)
+    {
+        return LoginByRoleAsync(request, "Receptionist");
+    }
+
+    public Task<LoginResponseAPIViewModel?> LoginCoachAsync(LoginRequestAPIViewModel request)
+    {
+        return LoginByRoleAsync(request, "Coach");
+    }
+
+    public Task<LoginResponseAPIViewModel?> LoginCenterManagerAsync(LoginRequestAPIViewModel request)
+    {
+        return LoginByRoleAsync(request, "CenterManager");
+    }
+
+    private async Task<LoginResponseAPIViewModel?> LoginByRoleAsync(
+        LoginRequestAPIViewModel request,
+        string roleName)
+    {
+        Role? role = await _context.Roles
+            .Where(q => q.Name == roleName)
+            .FirstOrDefaultAsync();
+
+        if (role == null)
         {
             return null;
         }
 
-        if (!_passwordHashService.VerifyPassword(request.Password, account.PasswordHash))
+        Account? account = await _context.Accounts
+            .Where(q =>
+                q.Status == "Active" &&
+                !q.IsLocked &&
+                q.Email == request.Email &&
+                q.RoleId == role.Id)
+            .FirstOrDefaultAsync();
+
+        if (account == null)
+        {
+            return null;
+        }
+
+        bool isCorrectPassword = _passwordHashService.VerifyPassword(
+            request.Password,
+            account.PasswordHash);
+
+        if (!isCorrectPassword)
         {
             account.FailedLoginCount++;
+
             if (account.FailedLoginCount >= MaximumFailedLoginAttempts)
             {
                 account.IsLocked = true;
@@ -44,118 +84,23 @@ public class AuthService : IAuthService
             _context.Accounts.Update(account);
             await _context.SaveChangesAsync();
             return null;
-
-        }
-        return new LoginResponseAPIViewModel()
-        {
-            Id = account.Id,
-            Email = account.Email,
-            Role = role.Name
-        };
-
-
-    }
-    public async Task<LoginResponseAPIViewModel?> LoginReceptionistAsync(LoginRequestAPIViewModel request)
-    {
-        var role = await _context.Roles.Where(q => q.Name == "Receptionist").FirstOrDefaultAsync();
-        var account = await _context.Accounts.Where(q => q.Email == request.Email && q.RoleId == role.Id).FirstOrDefaultAsync();
-
-        if (account is null || account.IsLocked ||
-            !string.Equals(account.Status, "Active", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
         }
 
-        if (!_passwordHashService.VerifyPassword(request.Password, account.PasswordHash))
+        if (account.FailedLoginCount > 0)
         {
-            account.FailedLoginCount++;
-            if (account.FailedLoginCount >= MaximumFailedLoginAttempts)
-            {
-                account.IsLocked = true;
-            }
-
+            account.FailedLoginCount = 0;
             account.UpdatedAt = DateTime.UtcNow;
             _context.Accounts.Update(account);
             await _context.SaveChangesAsync();
-            return null;
-
         }
-        return new LoginResponseAPIViewModel()
+
+        LoginResponseAPIViewModel response = new LoginResponseAPIViewModel
         {
             Id = account.Id,
             Email = account.Email,
             Role = role.Name
         };
 
-
+        return response;
     }
-    public async Task<LoginResponseAPIViewModel?> LoginCoachAsync(LoginRequestAPIViewModel request)
-    {
-        var role = await _context.Roles.Where(q => q.Name == "Coach").FirstOrDefaultAsync();
-        var account = await _context.Accounts.Where(q => q.Email == request.Email && q.RoleId == role.Id).FirstOrDefaultAsync();
-
-        if (account is null || account.IsLocked ||
-            !string.Equals(account.Status, "Active", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        if (!_passwordHashService.VerifyPassword(request.Password, account.PasswordHash))
-        {
-            account.FailedLoginCount++;
-            if (account.FailedLoginCount >= MaximumFailedLoginAttempts)
-            {
-                account.IsLocked = true;
-            }
-
-            account.UpdatedAt = DateTime.UtcNow;
-            _context.Accounts.Update(account);
-            await _context.SaveChangesAsync();
-            return null;
-
-        }
-        return new LoginResponseAPIViewModel()
-        {
-            Id = account.Id,
-            Email = account.Email,
-            Role = role.Name
-        };
-
-
-    }
-    public async Task<LoginResponseAPIViewModel?> LoginCenterManagerAsync(LoginRequestAPIViewModel request)
-    {
-        var role = await _context.Roles.Where(q => q.Name == "CenterManager").FirstOrDefaultAsync();
-        var account = await _context.Accounts.Where(q => q.Email == request.Email && q.RoleId == role.Id).FirstOrDefaultAsync();
-
-        if (account is null || account.IsLocked ||
-            !string.Equals(account.Status, "Active", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        if (!_passwordHashService.VerifyPassword(request.Password, account.PasswordHash))
-        {
-            account.FailedLoginCount++;
-            if (account.FailedLoginCount >= MaximumFailedLoginAttempts)
-            {
-                account.IsLocked = true;
-            }
-
-            account.UpdatedAt = DateTime.UtcNow;
-            _context.Accounts.Update(account);
-            await _context.SaveChangesAsync();
-            return null;
-           
-        }
-        return new LoginResponseAPIViewModel()
-        {
-            Id = account.Id,
-            Email = account.Email,
-            Role = role.Name
-        };
-
-
-    }
-
 }

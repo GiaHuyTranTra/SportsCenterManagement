@@ -3,4 +3,5 @@
   <Project Path="DataAccess/DataAccess.csproj" />
   <Project Path="Services/Services.csproj" />
   <Project Path="SportsCenterManagement/SportsCenterManagement.csproj" />
+  <Project Path="SportsCenterManagement.Tests/SportsCenterManagement.Tests.csproj" />
 </Solution>

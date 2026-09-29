@@ -2,8 +2,10 @@ using APIViewModel.CenterManager;
 using APIViewModel.Coach;
 using APIViewModel.Member;
 using APIViewModel.Receptionist;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.AccountService;
+using SportsCenterManagement.Filter;
 
 namespace SportsCenterManagement.Controllers
 {
@@ -18,6 +20,8 @@ namespace SportsCenterManagement.Controllers
             _account = account;
         }
 
+        [Authorize(Roles = "CenterManager")]
+        [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_center_manager")]
         public async Task<IActionResult> CreateCenterManagerAsync(CreateCenterManagerAPIViewModel info)
         {
@@ -45,6 +49,8 @@ namespace SportsCenterManagement.Controllers
             }
         }
 
+        [Authorize(Roles = "CenterManager")]
+        [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_coach")]
         public async Task<IActionResult> CreateCoachAsync(CreateCoachAPIViewModel info)
         {
@@ -72,6 +78,8 @@ namespace SportsCenterManagement.Controllers
             }
         }
 
+        [Authorize(Roles = "CenterManager")]
+        [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_member")]
         public async Task<IActionResult> CreateMemberAsync(CreateMemberAPIViewModel info)
         {
@@ -99,6 +107,8 @@ namespace SportsCenterManagement.Controllers
             }
         }
 
+        [Authorize(Roles = "CenterManager")]
+        [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_receptionist")]
         public async Task<IActionResult> CreateReceptionistAsync(CreateReceptionistAPIViewModel info)
         {
@@ -109,6 +119,39 @@ namespace SportsCenterManagement.Controllers
                 if (isCreated)
                 {
                     return Ok("Create receptionist successful");
+                }
+                else
+                {
+                    return StatusCode(500);
+                }
+            }
+            else
+            {
+                string allErrors = string.Join(
+                    "\n",
+                    ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage));
+                return BadRequest(allErrors);
+            }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("Register_member")]
+        public async Task<IActionResult> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info)
+        {
+            if (ModelState.IsValid)
+            {
+                if (await _account.IsEmailExistsAsync(info.Email))
+                {
+                    return Conflict("Email already exists");
+                }
+
+                RegisterMemberResponseAPIViewModel? result = await _account.RegisterMemberAsync(info);
+
+                if (result is not null)
+                {
+                    return Ok(result);
                 }
                 else
                 {

@@ -9,6 +9,10 @@ using NSwag.Generation.Processors.Security;
 using Services.AccountService;
 using Services.AccessTokenService;
 using Services.AuthService;
+using Services.MemberService;
+using Services.MembershipPackageService;
+using Services.MembershipInvoiceService;
+using Services.MemberSubscriptionService;
 using Services.PasswordHashService;
 using Services.Utils;
 using SportsCenterManagement.Filter;
@@ -20,15 +24,15 @@ public class Program
 {
     public static void Main(string[] args)
     {
-        var builder = WebApplication.CreateBuilder(args);
+        WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
         builder.Services.AddControllers();
         builder.Services.AddMemoryCache();
 
         builder.Services.AddDbContext<SportsCenterManagementContext>(options =>
             options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-        var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
-        var jwtOptions = jwtSection.Get<JwtOptions>()
+        IConfigurationSection jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
+        JwtOptions jwtOptions = jwtSection.Get<JwtOptions>()
             ?? throw new InvalidOperationException("Missing Jwt configuration.");
 
         builder.Services.Configure<JwtOptions>(jwtSection);
@@ -73,12 +77,16 @@ public class Program
         {
             containerBuilder.RegisterType<AccountService>().As<IAccountService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
+            containerBuilder.RegisterType<MemberService>().As<IMemberService>();
+            containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
+            containerBuilder.RegisterType<MembershipInvoiceService>().As<IMembershipInvoiceService>();
+            containerBuilder.RegisterType<MemberSubscriptionService>().As<IMemberSubscriptionService>();
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
             containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 
-        var app = builder.Build();
+        WebApplication app = builder.Build();
 
         if (app.Environment.IsDevelopment())
         {

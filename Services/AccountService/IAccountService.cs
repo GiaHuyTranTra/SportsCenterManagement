@@ -14,4 +14,8 @@ public interface IAccountService
     Task<bool> CreateMemberAsync(CreateMemberAPIViewModel info);
 
     Task<bool> CreateReceptionistAsync(CreateReceptionistAPIViewModel info);
+
+    Task<bool> IsEmailExistsAsync(string email);
+
+    Task<RegisterMemberResponseAPIViewModel?> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info);
 }

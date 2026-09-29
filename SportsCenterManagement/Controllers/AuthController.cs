@@ -28,11 +28,15 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
+    [TypeFilter(typeof(AuthFilter))]
     [HttpPost("Logout")]
     public async Task<IActionResult> Logout()
     {
         string? rawToken = await HttpContext.GetTokenAsync("access_token");
-        _cache.Set("blacklist-"+rawToken, rawToken, TimeSpan.FromMinutes(60));
+        if (!string.IsNullOrEmpty(rawToken))
+        {
+            _cache.Set("blacklist-" + rawToken, rawToken, TimeSpan.FromMinutes(1440));
+        }
         return Ok();
     }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,9 +29,19 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<Role> Roles { get; set; }
 
+    public virtual DbSet<MembershipPackage> MembershipPackages { get; set; }
+
+    public virtual DbSet<MemberSubscription> MemberSubscriptions { get; set; }
+
+    public virtual DbSet<MembershipInvoice> MembershipInvoices { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseSqlServer("Server=localhost\\SQLEXPRESS01;User Id=sa;Password=12345;Database=SportsCenterManagement;Encrypt=False;");
+    {
+        if (!optionsBuilder.IsConfigured)
+        {
+            optionsBuilder.UseSqlServer("Server=localhost\\SQLEXPRESS01;User Id=sa;Password=12345;Database=SportsCenterManagement;Encrypt=False;");
+        }
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -187,6 +197,115 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.Name).HasMaxLength(50);
+        });
+
+        modelBuilder.Entity<MembershipPackage>(entity =>
+        {
+            entity.ToTable("MembershipPackage");
+
+            entity.HasIndex(e => e.Name, "UQ_MembershipPackage_Name").IsUnique();
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql(
+                    "(sysutcdatetime())",
+                    "DF_MembershipPackage_CreatedAt");
+
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(
+                    true,
+                    "DF_MembershipPackage_IsActive");
+
+            entity.Property(e => e.Name).HasMaxLength(80);
+
+            entity.Property(e => e.Price)
+                .HasColumnType("decimal(18, 0)");
+        });
+
+        modelBuilder.Entity<MemberSubscription>(entity =>
+        {
+            entity.ToTable("MemberSubscription");
+
+            entity.HasIndex(e => new { e.MemberId, e.Status }, "IX_MemberSubscription_MemberId_Status");
+
+            entity.HasIndex(e => e.MemberId, "UQ_MemberSubscription_Pending_Member")
+                .IsUnique()
+                .HasFilter("([Status]='PENDING_PAYMENT')");
+
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())", "DF_MemberSubscription_CreatedAt");
+            entity.Property(e => e.Kind)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+            entity.Property(e => e.MemberId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.PackageName).HasMaxLength(80);
+            entity.Property(e => e.PackagePrice).HasColumnType("decimal(18, 0)");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("PENDING_PAYMENT", "DF_MemberSubscription_Status");
+
+            entity.HasOne(d => d.Member).WithMany(p => p.MemberSubscriptions)
+                .HasForeignKey(d => d.MemberId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MemberSubscription_Member");
+
+            entity.HasOne(d => d.Package).WithMany(p => p.MemberSubscriptions)
+                .HasForeignKey(d => d.PackageId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MemberSubscription_MembershipPackage");
+        });
+
+        modelBuilder.Entity<MembershipInvoice>(entity =>
+        {
+            entity.ToTable("MembershipInvoice");
+
+            entity.HasIndex(e => new { e.MemberId, e.Status }, "IX_MembershipInvoice_MemberId_Status");
+
+            entity.HasIndex(e => e.InvoiceNumber, "UQ_MembershipInvoice_InvoiceNumber").IsUnique();
+
+            entity.HasIndex(e => e.SubscriptionId, "UQ_MembershipInvoice_SubscriptionId").IsUnique();
+
+            entity.Property(e => e.Amount).HasColumnType("decimal(18, 0)");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())", "DF_MembershipInvoice_CreatedAt");
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.InvoiceNumber)
+                .HasMaxLength(50)
+                .IsUnicode(false);
+            entity.Property(e => e.MemberId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.PaidBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.PaymentMethod)
+                .HasMaxLength(30)
+                .IsUnicode(false);
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("PENDING_PAYMENT", "DF_MembershipInvoice_Status");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany()
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MembershipInvoice_CreatedBy");
+
+            entity.HasOne(d => d.Member).WithMany(p => p.MembershipInvoices)
+                .HasForeignKey(d => d.MemberId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MembershipInvoice_Member");
+
+            entity.HasOne(d => d.PaidByNavigation).WithMany()
+                .HasForeignKey(d => d.PaidBy)
+                .HasConstraintName("FK_MembershipInvoice_PaidBy");
+
+            entity.HasOne(d => d.Subscription).WithOne(p => p.MembershipInvoice)
+                .HasForeignKey<MembershipInvoice>(d => d.SubscriptionId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MembershipInvoice_Subscription");
         });
 
         OnModelCreatingPartial(modelBuilder);

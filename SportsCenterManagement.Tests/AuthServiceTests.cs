@@ -9,36 +9,37 @@ namespace SportsCenterManagement.Tests;
 public class AuthServiceTests
 {
     [Fact]
-    public async Task LoginAsync_WithCorrectPassword_ReturnsJwtAndResetsFailedCount()
+    public async Task LoginAsync_WithCorrectPassword_ReturnsAccountAndResetsFailedCount()
     {
-        await using var context = CreateContext();
-        var account = AuthTestData.CreateAccount();
+        await using SportsCenterManagementContext context = CreateContext();
+        Account account = AuthTestData.CreateAccount();
         account.FailedLoginCount = 3;
         context.Add(account);
         await context.SaveChangesAsync();
-        var service = CreateAuthService(context);
+        AuthService service = CreateAuthService(context);
 
-        var response = await service.LoginAsync(new LoginRequest
+        LoginResponseAPIViewModel? response = await service.LoginMemberAsync(new LoginRequestAPIViewModel
         {
             Email = account.Email,
             Password = "CorrectPassword123!"
         });
 
         Assert.NotNull(response);
-        Assert.False(string.IsNullOrWhiteSpace(response.AccessToken));
-        Assert.Equal(0, account.FailedLoginCount);
+        Assert.Equal(account.Id, response.Id);
+        Assert.Equal(account.Email, response.Email);
+        Assert.Equal("Member", response.Role);
     }
 
     [Fact]
     public async Task LoginAsync_WithWrongPassword_IncrementsFailedLoginCount()
     {
-        await using var context = CreateContext();
-        var account = AuthTestData.CreateAccount();
+        await using SportsCenterManagementContext context = CreateContext();
+        Account account = AuthTestData.CreateAccount();
         context.Add(account);
         await context.SaveChangesAsync();
-        var service = CreateAuthService(context);
+        AuthService service = CreateAuthService(context);
 
-        var response = await service.LoginAsync(new LoginRequest
+        LoginResponseAPIViewModel? response = await service.LoginMemberAsync(new LoginRequestAPIViewModel
         {
             Email = account.Email,
             Password = "wrong-password"
@@ -52,14 +53,14 @@ public class AuthServiceTests
     [Fact]
     public async Task LoginAsync_OnFifthWrongPassword_LocksAccount()
     {
-        await using var context = CreateContext();
-        var account = AuthTestData.CreateAccount();
+        await using SportsCenterManagementContext context = CreateContext();
+        Account account = AuthTestData.CreateAccount();
         account.FailedLoginCount = 4;
         context.Add(account);
         await context.SaveChangesAsync();
-        var service = CreateAuthService(context);
+        AuthService service = CreateAuthService(context);
 
-        await service.LoginAsync(new LoginRequest
+        await service.LoginMemberAsync(new LoginRequestAPIViewModel
         {
             Email = account.Email,
             Password = "wrong-password"
@@ -71,7 +72,7 @@ public class AuthServiceTests
 
     private static SportsCenterManagementContext CreateContext()
     {
-        var options = new DbContextOptionsBuilder<SportsCenterManagementContext>()
+        DbContextOptions<SportsCenterManagementContext> options = new DbContextOptionsBuilder<SportsCenterManagementContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         return new SportsCenterManagementContext(options);
@@ -81,7 +82,7 @@ public class AuthServiceTests
     {
         return new AuthService(
             context,
-            AuthTestData.CreateAccessTokenService(),
+            AuthTestData.CreateAccessTokenService(1440),
             new PasswordHashService());
     }
 }

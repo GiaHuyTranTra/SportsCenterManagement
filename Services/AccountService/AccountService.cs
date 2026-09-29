@@ -235,4 +235,82 @@ public class AccountService : IAccountService
             return false;
         }
     }
+
+    public async Task<bool> IsEmailExistsAsync(string email)
+    {
+        string normalizedEmail = email.Trim().ToLowerInvariant();
+        return await _context.Accounts.AnyAsync(q => q.Email.ToLower() == normalizedEmail);
+    }
+
+    public async Task<RegisterMemberResponseAPIViewModel?> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info)
+    {
+        try
+        {
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
+            if (await IsEmailExistsAsync(normalizedEmail))
+            {
+                return null;
+            }
+
+            Role? role = await _context.Roles
+                .Where(q => q.Name == "Member")
+                .FirstOrDefaultAsync();
+
+            if (role is null)
+            {
+                return null;
+            }
+
+            Account newAccount = new Account
+            {
+                Id = Guid.NewGuid().ToString(),
+                Email = normalizedEmail,
+                PasswordHash = _passwordHashService.HashPassword(info.Password),
+                RoleId = role.Id,
+                Status = "Active",
+                FailedLoginCount = 0,
+                IsLocked = false,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Accounts.AddAsync(newAccount);
+
+            string memberCode = await GenerateUniqueMemberCodeAsync();
+            Member newMember = new Member
+            {
+                AccountId = newAccount.Id,
+                MemberCode = memberCode,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Members.AddAsync(newMember);
+            await _context.SaveChangesAsync();
+
+            return new RegisterMemberResponseAPIViewModel
+            {
+                AccountId = newAccount.Id,
+                Email = newAccount.Email,
+                MemberCode = newMember.MemberCode
+            };
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task<string> GenerateUniqueMemberCodeAsync()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            string candidateCode = $"MB{DateTime.UtcNow:yyMMdd}{Random.Shared.Next(1000, 9999)}";
+            bool exists = await _context.Members.AnyAsync(q => q.MemberCode == candidateCode);
+            if (!exists)
+            {
+                return candidateCode;
+            }
+        }
+
+        return $"MB{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+    }
 }
