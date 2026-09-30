@@ -3,6 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
@@ -130,6 +131,79 @@ public class AuthenticationIntegrationTests
         Assert.Contains(
             "http://localhost:5173",
             response.Headers.GetValues("Access-Control-Allow-Origin"));
+    }
+
+    [Fact]
+    public async Task CenterManager_CanCallEveryMemberManagementRoute()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = CreateAuthenticatedClient(
+            factory,
+            CreateToken(
+                "manager-account",
+                "manager@example.com",
+                "CenterManager",
+                DateTime.UtcNow.AddMinutes(10)));
+
+        HttpResponseMessage list = await client.GetAsync("/api/member");
+        HttpResponseMessage create = await client.PostAsJsonAsync("/api/member", new
+        {
+            fullName = "Created Member",
+            email = "created.member@example.com",
+            phone = "0911111111",
+            dateOfBirth = "2000-01-02",
+            isActive = true
+        });
+        HttpResponseMessage update = await client.PatchAsJsonAsync("/api/member/account-1", new
+        {
+            fullName = "Updated Member",
+            email = "updated.member@example.com",
+            phone = "0922222222",
+            dateOfBirth = "2000-01-02",
+            isActive = true
+        });
+        HttpResponseMessage delete = await client.DeleteAsync("/api/member/account-1");
+
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("coach-account", "coach@example.com", "Coach")]
+    [InlineData("account-1", "member@example.com", "Member")]
+    [InlineData("receptionist-account", "receptionist@example.com", "Receptionist")]
+    public async Task NonManagers_CannotCallMemberManagementRoutes(
+        string accountId,
+        string email,
+        string role)
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = CreateAuthenticatedClient(
+            factory,
+            CreateToken(accountId, email, role, DateTime.UtcNow.AddMinutes(10)));
+
+        HttpResponseMessage list = await client.GetAsync("/api/member");
+        HttpResponseMessage create = await client.PostAsJsonAsync("/api/member", new { });
+        HttpResponseMessage update = await client.PatchAsJsonAsync("/api/member/account-1", new { });
+        HttpResponseMessage delete = await client.DeleteAsync("/api/member/account-1");
+
+        Assert.Equal(HttpStatusCode.Forbidden, list.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, update.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);
+    }
+
+    [Fact]
+    public async Task ActiveMembershipPackages_RemainAnonymous()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/membershippackage/active");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private static HttpClient CreateAuthenticatedClient(WebApplicationFactory<Program> factory, string token)

@@ -42,7 +42,35 @@ public class MemberController : ControllerBase
     }
 
     [Authorize(Roles = "CenterManager")]
-    [HttpGet("{accountId}")]
+    [HttpPost]
+    public async Task<IActionResult> CreateManagedMemberAsync(
+        [FromBody] CreateManagedMemberAPIViewModel request)
+    {
+        (CreateManagedMemberResult Result, CreateManagedMemberResponseAPIViewModel? Data) result =
+            await _memberService.CreateManagedMemberAsync(request);
+
+        switch (result.Result)
+        {
+            case CreateManagedMemberResult.Success when result.Data is not null:
+                return CreatedAtRoute(
+                    "GetMemberById",
+                    new { accountId = result.Data.Member.AccountId },
+                    result.Data);
+            case CreateManagedMemberResult.DuplicateEmail:
+                return Conflict("Email already exists");
+            case CreateManagedMemberResult.DuplicatePhone:
+                return Conflict("Phone number already exists");
+            case CreateManagedMemberResult.InvalidData:
+                return BadRequest("Invalid member data");
+            case CreateManagedMemberResult.MemberRoleMissing:
+                return StatusCode(500);
+            default:
+                return StatusCode(500);
+        }
+    }
+
+    [Authorize(Roles = "CenterManager")]
+    [HttpGet("{accountId}", Name = "GetMemberById")]
     public async Task<IActionResult> GetMemberByIdAsync([FromRoute] string accountId)
     {
         MemberDetailAPIViewModel? result = await _memberService.GetMemberByIdAsync(accountId);
@@ -59,27 +87,42 @@ public class MemberController : ControllerBase
     [HttpPatch("{accountId}")]
     public async Task<IActionResult> UpdateMemberAsync(
         [FromRoute] string accountId,
-        [FromBody] UpdateMemberAPIViewModel request)
+        [FromBody] UpdateManagedMemberAPIViewModel request)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
+        (UpdateManagedMemberResult Result, MemberDetailAPIViewModel? Data) result =
+            await _memberService.UpdateManagedMemberAsync(accountId, request);
 
-        UpdateMemberResult result = await _memberService.UpdateMemberAsync(accountId, request);
+        switch (result.Result)
+        {
+            case UpdateManagedMemberResult.Success when result.Data is not null:
+                return Ok(result.Data);
+            case UpdateManagedMemberResult.NotFound:
+                return NotFound("Member not found");
+            case UpdateManagedMemberResult.DuplicateEmail:
+                return Conflict("Email already exists");
+            case UpdateManagedMemberResult.DuplicatePhone:
+                return Conflict("Phone number already exists");
+            case UpdateManagedMemberResult.InvalidData:
+                return BadRequest("Invalid input data");
+            default:
+                return StatusCode(500);
+        }
+    }
+
+    [Authorize(Roles = "CenterManager")]
+    [HttpDelete("{accountId}")]
+    public async Task<IActionResult> SoftDeleteMemberAsync([FromRoute] string accountId)
+    {
+        DeleteMemberResult result = await _memberService.SoftDeleteMemberAsync(accountId);
 
         switch (result)
         {
-            case UpdateMemberResult.Success:
-                return Ok("Update member successful");
-            case UpdateMemberResult.NotFound:
+            case DeleteMemberResult.Success:
+                return NoContent();
+            case DeleteMemberResult.NotFound:
                 return NotFound("Member not found");
-            case UpdateMemberResult.DuplicatePhone:
-                return Conflict("Phone number already exists");
-            case UpdateMemberResult.InvalidData:
-                return BadRequest("Invalid input data");
-            case UpdateMemberResult.NoChanges:
-                return BadRequest("No changes provided");
+            case DeleteMemberResult.AlreadyDeleted:
+                return BadRequest("Member is already deleted");
             default:
                 return StatusCode(500);
         }
