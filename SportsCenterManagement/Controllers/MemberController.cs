@@ -2,9 +2,11 @@ using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.Member;
+using APIViewModel.MemberSubscription;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.MemberService;
+using Services.MemberSubscriptionService;
 
 namespace SportsCenterManagement.Controllers;
 
@@ -13,10 +15,14 @@ namespace SportsCenterManagement.Controllers;
 public class MemberController : ControllerBase
 {
     private readonly IMemberService _memberService;
+    private readonly IMemberSubscriptionService _memberSubscriptionService;
 
-    public MemberController(IMemberService memberService)
+    public MemberController(
+        IMemberService memberService,
+        IMemberSubscriptionService memberSubscriptionService)
     {
         _memberService = memberService;
+        _memberSubscriptionService = memberSubscriptionService;
     }
 
     [Authorize(Roles = "CenterManager")]
@@ -66,6 +72,52 @@ public class MemberController : ControllerBase
                 return StatusCode(500);
             default:
                 return StatusCode(500);
+        }
+    }
+
+    [Authorize(Roles = "Receptionist,CenterManager")]
+    [HttpPost("counter-registration")]
+    public async Task<IActionResult> RegisterMemberAtCounterAsync(
+        [FromBody] CounterRegisterMemberAPIViewModel request)
+    {
+        string? staffAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(staffAccountId))
+        {
+            return Unauthorized();
+        }
+
+        (CounterRegisterMemberResult Result, CounterRegisterMemberResponseAPIViewModel? Data) result =
+            await _memberSubscriptionService.RegisterMemberAtCounterAsync(
+                staffAccountId,
+                request);
+
+        switch (result.Result)
+        {
+            case CounterRegisterMemberResult.Success when result.Data is not null:
+                return StatusCode(StatusCodes.Status201Created, result.Data);
+            case CounterRegisterMemberResult.InvalidData:
+            case CounterRegisterMemberResult.InvalidPaymentMethod:
+                return BadRequest("Invalid counter registration data.");
+            case CounterRegisterMemberResult.StaffNotFound:
+            case CounterRegisterMemberResult.PackageNotFound:
+                return NotFound();
+            case CounterRegisterMemberResult.StaffRoleNotAllowed:
+            case CounterRegisterMemberResult.StaffInactive:
+                return StatusCode(StatusCodes.Status403Forbidden);
+            case CounterRegisterMemberResult.StaffLocked:
+                return StatusCode(StatusCodes.Status423Locked);
+            case CounterRegisterMemberResult.DuplicateEmail:
+            case CounterRegisterMemberResult.DuplicatePhone:
+            case CounterRegisterMemberResult.PackageInactive:
+            case CounterRegisterMemberResult.PendingOrderExists:
+            case CounterRegisterMemberResult.PriceChanged:
+            case CounterRegisterMemberResult.InvoiceNumberCollision:
+            case CounterRegisterMemberResult.ConcurrencyConflict:
+                return Conflict();
+            case CounterRegisterMemberResult.MemberRoleMissing:
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            default:
+                return StatusCode(StatusCodes.Status500InternalServerError);
         }
     }
 
