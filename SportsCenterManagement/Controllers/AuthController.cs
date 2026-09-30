@@ -1,11 +1,12 @@
 using APIViewModel.Auth;
-using Microsoft.AspNetCore.Authentication;
+using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Services.AccessTokenService;
 using Services.AuthService;
 using SportsCenterManagement.Filter;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
@@ -19,27 +20,256 @@ public class AuthController : ControllerBase
     private readonly IAccessTokenService _accessToken;
     private readonly IMemoryCache _cache;
 
-    public AuthController(IAuthService authService, IAccessTokenService accesstoken,IMemoryCache cache)
+    public AuthController(
+        IAuthService authService,
+        IAccessTokenService accesstoken,
+        IMemoryCache cache)
     {
         _authService = authService;
         _accessToken = accesstoken;
         _cache = cache;
-       
+    }
+
+    [AllowAnonymous]
+    [HttpPost("login")]
+    public async Task<IActionResult> LoginAsync(LoginRequestAPIViewModel request)
+    {
+        (LoginResult result, LoginResponseAPIViewModel? account) =
+            await _authService.LoginAsync(request);
+
+        if (result == LoginResult.Success && account is not null)
+        {
+            GeneratedAccessTokenAPIViewModel tokenMeta =
+                _accessToken.GenerateAccessTokenWithMetadata(account);
+
+            AuthSessionAPIViewModel session = new AuthSessionAPIViewModel
+            {
+                AccessToken = tokenMeta.AccessToken,
+                TokenType = "Bearer",
+                ExpiresAtUtc = tokenMeta.ExpiresAtUtc,
+                AccountId = account.Id,
+                Email = account.Email,
+                Role = account.Role
+            };
+
+            return Ok(session);
+        }
+
+        return result switch
+        {
+            LoginResult.InvalidCredentials => Unauthorized(new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = "INVALID_CREDENTIALS",
+                    Message = "The email or password is incorrect.",
+                    Details = null
+                },
+                TraceId = HttpContext.TraceIdentifier
+            }),
+            LoginResult.AccountLocked => StatusCode(423, new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = "ACCOUNT_LOCKED",
+                    Message = "This account has been locked due to too many failed login attempts.",
+                    Details = null
+                },
+                TraceId = HttpContext.TraceIdentifier
+            }),
+            LoginResult.AccountInactive => StatusCode(403, new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = "ACCOUNT_INACTIVE",
+                    Message = "This account is not active.",
+                    Details = null
+                },
+                TraceId = HttpContext.TraceIdentifier
+            }),
+            LoginResult.ConcurrentPasswordChange => Conflict(new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = "CONCURRENT_PASSWORD_CHANGE",
+                    Message = "A concurrent change was detected. Please try again.",
+                    Details = null
+                },
+                TraceId = HttpContext.TraceIdentifier
+            }),
+            LoginResult.ConcurrencyConflict => Conflict(new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = "CONCURRENCY_CONFLICT",
+                    Message = "A concurrent request conflict was detected. Please try again.",
+                    Details = null
+                },
+                TraceId = HttpContext.TraceIdentifier
+            }),
+            _ => StatusCode(500, new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = "INTERNAL_SERVER_ERROR",
+                    Message = "An unexpected error occurred.",
+                    Details = null
+                },
+                TraceId = HttpContext.TraceIdentifier
+            })
+        };
     }
 
     [Authorize]
     [TypeFilter(typeof(AuthFilter))]
     [HttpPost("Logout")]
-    public async Task<IActionResult> Logout()
+    public IActionResult Logout()
     {
-        string? rawToken = await HttpContext.GetTokenAsync("access_token");
-        if (!string.IsNullOrEmpty(rawToken))
+        IActionResult? blacklistError = BlacklistCurrentToken();
+        if (blacklistError is not null)
         {
-            _cache.Set("blacklist-" + rawToken, rawToken, TimeSpan.FromMinutes(1440));
+            return blacklistError;
         }
+
         return Ok();
     }
 
+    [Authorize]
+    [TypeFilter(typeof(AuthFilter))]
+    [HttpPost("request-change-password-otp")]
+    public async Task<IActionResult> RequestChangePasswordOtpAsync()
+    {
+        string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(accountId))
+        {
+            return Unauthorized(CreateError(
+                "INVALID_TOKEN_CLAIMS",
+                "The access token does not contain the required claims."));
+        }
+
+        (RequestPasswordChangeOtpResult result, int retryAfterSeconds) =
+            await _authService.RequestChangePasswordOtpAsync(accountId);
+
+        return result switch
+        {
+            RequestPasswordChangeOtpResult.Success => Ok(
+                new PasswordChangeOtpResponseAPIViewModel
+                {
+                    Message = "A password change code was sent to your email address.",
+                    ExpiresInSeconds = 300,
+                    CooldownSeconds = 60
+                }),
+            RequestPasswordChangeOtpResult.AccountNotFound => Unauthorized(CreateError(
+                "ACCOUNT_NOT_FOUND",
+                "The authenticated account no longer exists.")),
+            RequestPasswordChangeOtpResult.AccountInactive => StatusCode(
+                StatusCodes.Status403Forbidden,
+                CreateError("ACCOUNT_INACTIVE", "This account is not active.")),
+            RequestPasswordChangeOtpResult.AccountLocked => StatusCode(
+                StatusCodes.Status423Locked,
+                CreateError("ACCOUNT_LOCKED", "This account is locked.")),
+            RequestPasswordChangeOtpResult.CooldownActive => StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                CreateError(
+                    "OTP_COOLDOWN_ACTIVE",
+                    "Please wait before requesting another code.",
+                    new Dictionary<string, int>
+                    {
+                        ["retryAfterSeconds"] = retryAfterSeconds
+                    })),
+            RequestPasswordChangeOtpResult.ConcurrentRequest => Conflict(CreateError(
+                "OTP_CONCURRENT_REQUEST",
+                "Another password change code request is already being processed.")),
+            RequestPasswordChangeOtpResult.DeliveryFailed => StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                CreateError(
+                    "OTP_DELIVERY_FAILED",
+                    "The password change code could not be delivered. Please try again.")),
+            RequestPasswordChangeOtpResult.ConcurrencyConflict => Conflict(CreateError(
+                "CONCURRENCY_CONFLICT",
+                "A concurrent request conflict was detected. Please try again.")),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+        };
+    }
+
+    [Authorize]
+    [TypeFilter(typeof(AuthFilter))]
+    [HttpPut("change-password")]
+    public async Task<IActionResult> ChangePasswordWithOtpAsync(
+        ChangePasswordWithOtpRequestAPIViewModel request)
+    {
+        string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(accountId))
+        {
+            return Unauthorized(CreateError(
+                "INVALID_TOKEN_CLAIMS",
+                "The access token does not contain the required claims."));
+        }
+
+        ChangePasswordWithOtpResult result =
+            await _authService.ChangePasswordWithOtpAsync(accountId, request);
+
+        if (result == ChangePasswordWithOtpResult.Success)
+        {
+            IActionResult? blacklistError = BlacklistCurrentToken();
+            if (blacklistError is not null)
+            {
+                return blacklistError;
+            }
+
+            return Ok("Password changed successfully. Please sign in again.");
+        }
+
+        return result switch
+        {
+            ChangePasswordWithOtpResult.AccountNotFound => Unauthorized(CreateError(
+                "ACCOUNT_NOT_FOUND",
+                "The authenticated account no longer exists.")),
+            ChangePasswordWithOtpResult.AccountInactive => StatusCode(
+                StatusCodes.Status403Forbidden,
+                CreateError("ACCOUNT_INACTIVE", "This account is not active.")),
+            ChangePasswordWithOtpResult.AccountLocked => StatusCode(
+                StatusCodes.Status423Locked,
+                CreateError("ACCOUNT_LOCKED", "This account is locked.")),
+            ChangePasswordWithOtpResult.IncorrectCurrentPassword => Unauthorized(CreateError(
+                "INCORRECT_CURRENT_PASSWORD",
+                "The current password is incorrect.")),
+            ChangePasswordWithOtpResult.OtpNotFound => BadRequest(CreateError(
+                "OTP_NOT_FOUND",
+                "No active password change code was found.")),
+            ChangePasswordWithOtpResult.OtpExpired => BadRequest(CreateError(
+                "OTP_EXPIRED",
+                "The password change code has expired.")),
+            ChangePasswordWithOtpResult.InvalidOtp => BadRequest(CreateError(
+                "INVALID_OTP",
+                "The password change code is incorrect.")),
+            ChangePasswordWithOtpResult.AttemptsExceeded => StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                CreateError(
+                    "OTP_ATTEMPTS_EXCEEDED",
+                    "The password change code is no longer valid.")),
+            ChangePasswordWithOtpResult.PasswordUnchanged => Conflict(CreateError(
+                "PASSWORD_UNCHANGED",
+                "The new password must be different from the current password.")),
+            ChangePasswordWithOtpResult.ConcurrentPasswordChange => Conflict(CreateError(
+                "CONCURRENT_PASSWORD_CHANGE",
+                "The password changed during this request. Please try again.")),
+            ChangePasswordWithOtpResult.ConcurrencyConflict => Conflict(CreateError(
+                "CONCURRENCY_CONFLICT",
+                "A concurrent request conflict was detected. Please try again.")),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+        };
+    }
 
     [AllowAnonymous]
     [HttpPost("Login_center_manager")]
@@ -47,17 +277,13 @@ public class AuthController : ControllerBase
     {
         if (ModelState.IsValid)
         {
-            //check login
             LoginResponseAPIViewModel? result = await _authService.LoginCenterManagerAsync(model);
             if (result != null)
             {
-                //gen toiken
-                string token =  _accessToken.GenerateAccessToken(result);
+                string token = _accessToken.GenerateAccessToken(result);
                 return Ok(token);
             }
             else return BadRequest("Email or password is not corrected");
-           
-           
         }
         else
         {
@@ -134,16 +360,14 @@ public class AuthController : ControllerBase
         }
     }
 
-
-
     [HttpPost("check-token")]
     [Authorize]
     [TypeFilter(typeof(AuthFilter))]
     public ActionResult<CheckTokenResponse> CheckToken()
     {
-        var accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
-        var role = User.FindFirstValue(ClaimTypes.Role);
+        string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        string? email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
+        string? role = User.FindFirstValue(ClaimTypes.Role);
 
         if (string.IsNullOrWhiteSpace(accountId) ||
             string.IsNullOrWhiteSpace(email) ||
@@ -160,5 +384,57 @@ public class AuthController : ControllerBase
         });
     }
 
+    private IActionResult? BlacklistCurrentToken()
+    {
+        string? jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
+        string? expClaim = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
 
+        if (string.IsNullOrWhiteSpace(jti) || string.IsNullOrWhiteSpace(expClaim))
+        {
+            return Unauthorized(CreateError(
+                "INVALID_TOKEN_CLAIMS",
+                "The access token does not contain the required claims."));
+        }
+
+        if (!long.TryParse(
+                expClaim,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long expUnixSeconds))
+        {
+            return Unauthorized(CreateError(
+                "INVALID_TOKEN_CLAIMS",
+                "The access token does not contain the required claims."));
+        }
+
+        DateTimeOffset tokenExpiresAt = DateTimeOffset.FromUnixTimeSeconds(expUnixSeconds);
+        if (tokenExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return Unauthorized(CreateError(
+                "INVALID_TOKEN_CLAIMS",
+                "The access token has already expired."));
+        }
+
+        string cacheKey = "jwt:blacklist:" + jti;
+        _cache.Set(cacheKey, true, tokenExpiresAt);
+        return null;
+    }
+
+    private ApiErrorResponseAPIViewModel CreateError(
+        string code,
+        string message,
+        object? details = null)
+    {
+        return new ApiErrorResponseAPIViewModel
+        {
+            Success = false,
+            Error = new ApiErrorAPIViewModel
+            {
+                Code = code,
+                Message = message,
+                Details = details
+            },
+            TraceId = HttpContext.TraceIdentifier
+        };
+    }
 }

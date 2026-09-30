@@ -35,6 +35,8 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<MembershipInvoice> MembershipInvoices { get; set; }
 
+    public virtual DbSet<PasswordChangeOtp> PasswordChangeOtps { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Account>(entity =>
@@ -298,6 +300,31 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasForeignKey<MembershipInvoice>(d => d.SubscriptionId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MembershipInvoice_Subscription");
+        });
+
+        modelBuilder.Entity<PasswordChangeOtp>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PK__Password__3214EC07225EE6F9");
+
+            entity.ToTable("PasswordChangeOtp");
+
+            entity.HasIndex(e => e.AccountId, "UQ_PasswordChangeOtp_ActiveAccount")
+                .IsUnique()
+                .HasFilter("([IsUsed]=(0))");
+
+            entity.Property(e => e.AccountId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.MaxAttempts).HasDefaultValue(3);
+            entity.Property(e => e.OtpHash)
+                .HasMaxLength(255)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.Account).WithMany(p => p.PasswordChangeOtps)
+                .HasForeignKey(d => d.AccountId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PasswordChangeOtp_Account");
         });
 
         OnModelCreatingPartial(modelBuilder);

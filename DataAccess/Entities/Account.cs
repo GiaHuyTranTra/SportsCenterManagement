@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace DataAccess.Entities;
@@ -32,6 +32,8 @@ public partial class Account
     public virtual Coach? Coach { get; set; }
 
     public virtual Member? Member { get; set; }
+
+    public virtual ICollection<PasswordChangeOtp> PasswordChangeOtps { get; set; } = new List<PasswordChangeOtp>();
 
     public virtual Receptionist? Receptionist { get; set; }
 

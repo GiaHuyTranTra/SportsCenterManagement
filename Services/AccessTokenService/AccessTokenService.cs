@@ -1,5 +1,4 @@
 using APIViewModel.Auth;
-using DataAccess.Entities;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Services.Utils;
@@ -20,23 +19,50 @@ public class AccessTokenService : IAccessTokenService
 
     public string GenerateAccessToken(LoginResponseAPIViewModel account)
     {
-        var expiresAtUtc = DateTime.UtcNow.AddMinutes(_jwtOptions.ExpirationMinutes);
-        var claims = new List<Claim>
+        return GenerateAccessTokenWithMetadata(account).AccessToken;
+    }
+
+    public GeneratedAccessTokenAPIViewModel GenerateAccessTokenWithMetadata(
+        LoginResponseAPIViewModel account)
+    {
+        if (string.IsNullOrWhiteSpace(_jwtOptions.SigningKey))
         {
-            new(ClaimTypes.NameIdentifier, account.Id),
-            new(JwtRegisteredClaimNames.Email, account.Email),
-            new(ClaimTypes.Role, account.Role)
+            throw new InvalidOperationException("Jwt:SigningKey must not be empty.");
+        }
+
+        if (_jwtOptions.ExpirationMinutes <= 0)
+        {
+            throw new InvalidOperationException("Jwt:ExpirationMinutes must be greater than zero.");
+        }
+
+        DateTime expiresAtUtc = DateTime.UtcNow.AddMinutes(_jwtOptions.ExpirationMinutes);
+        string jti = Guid.NewGuid().ToString("N");
+
+        List<Claim> claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, account.Id),
+            new Claim(JwtRegisteredClaimNames.Email, account.Email),
+            new Claim(ClaimTypes.Role, account.Role),
+            new Claim(JwtRegisteredClaimNames.Jti, jti)
         };
 
-        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.SigningKey));
-        var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
-        var jwt = new JwtSecurityToken(
+        SymmetricSecurityKey signingKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_jwtOptions.SigningKey));
+        SigningCredentials credentials = new SigningCredentials(
+            signingKey, SecurityAlgorithms.HmacSha256);
+        JwtSecurityToken jwt = new JwtSecurityToken(
             issuer: _jwtOptions.Issuer,
             audience: _jwtOptions.Audience,
             claims: claims,
             expires: expiresAtUtc,
             signingCredentials: credentials);
 
-        return new JwtSecurityTokenHandler().WriteToken(jwt);
+        string accessToken = new JwtSecurityTokenHandler().WriteToken(jwt);
+
+        return new GeneratedAccessTokenAPIViewModel
+        {
+            AccessToken = accessToken,
+            ExpiresAtUtc = expiresAtUtc
+        };
     }
 }
