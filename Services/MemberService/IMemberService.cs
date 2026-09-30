@@ -38,5 +38,8 @@ public interface IMemberService
         string accountId,
         string status);
 
-    Task<List<MemberSearchAPIViewModel>> QuickSearchMembersAsync(string keyword);
+    Task<PagedMemberSearchResultAPIViewModel> QuickSearchMembersAsync(
+        string keyword,
+        int page,
+        int pageSize);
 }

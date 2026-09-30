@@ -16,5 +16,6 @@ public class CreateCenterManagerAPIViewModel
     public string FullName { get; set; } = null!;
 
     [Required]
+    [RegularExpression("^[0-9]{10}$")]
     public string Phone { get; set; } = null!;
 }

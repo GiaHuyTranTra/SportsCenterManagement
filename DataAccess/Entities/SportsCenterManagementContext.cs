@@ -47,6 +47,10 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.HasIndex(e => e.Email, "UQ__Account__A9D105343F8562DD").IsUnique();
 
+            entity.HasIndex(e => e.Phone, "UQ_Account_Phone")
+                .IsUnique()
+                .HasFilter("([Phone] IS NOT NULL)");
+
             entity.Property(e => e.Id)
                 .HasMaxLength(400)
                 .IsUnicode(false);

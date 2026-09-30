@@ -1,9 +1,11 @@
+using APIViewModel.Account;
 using APIViewModel.Auth;
 using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Services.AccessTokenService;
+using Services.AccountService;
 using Services.AuthService;
 using SportsCenterManagement.Filter;
 using System.Globalization;
@@ -17,17 +19,58 @@ namespace SportsCenterManagement.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IAccountService _accountService;
     private readonly IAccessTokenService _accessToken;
     private readonly IMemoryCache _cache;
 
     public AuthController(
         IAuthService authService,
+        IAccountService accountService,
         IAccessTokenService accesstoken,
         IMemoryCache cache)
     {
         _authService = authService;
+        _accountService = accountService;
         _accessToken = accesstoken;
         _cache = cache;
+    }
+
+    [Authorize]
+    [TypeFilter(typeof(AuthFilter))]
+    [HttpGet("me")]
+    public async Task<IActionResult> GetCurrentUserAsync()
+    {
+        string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(accountId))
+        {
+            return Unauthorized(CreateError(
+                "INVALID_TOKEN_CLAIMS",
+                "The access token does not contain the required claims."));
+        }
+
+        (GetCurrentUserProfileResult result, CurrentUserProfileAPIViewModel? profile) =
+            await _accountService.GetCurrentUserProfileAsync(accountId);
+
+        return result switch
+        {
+            GetCurrentUserProfileResult.Success when profile is not null => Ok(profile),
+            GetCurrentUserProfileResult.AccountNotFound => Unauthorized(CreateError(
+                "ACCOUNT_NOT_FOUND",
+                "The authenticated account no longer exists.")),
+            GetCurrentUserProfileResult.ProfileNotFound => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError(
+                    "PROFILE_DATA_INTEGRITY_ERROR",
+                    "The account profile is not configured correctly.")),
+            GetCurrentUserProfileResult.UnsupportedRole => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError(
+                    "UNSUPPORTED_ACCOUNT_ROLE",
+                    "The account role is not supported.")),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+        };
     }
 
     [AllowAnonymous]

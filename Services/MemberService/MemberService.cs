@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using APIViewModel.Member;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Services.MemberService;
 
@@ -14,10 +15,14 @@ public class MemberService : IMemberService
     private const string InactiveStatus = "Inactive";
 
     private readonly SportsCenterManagementContext _context;
+    private readonly IConfiguration _configuration;
 
-    public MemberService(SportsCenterManagementContext context)
+    public MemberService(
+        SportsCenterManagementContext context,
+        IConfiguration configuration)
     {
         _context = context;
+        _configuration = configuration;
     }
 
     private static string? NormalizeStatus(string? status)
@@ -308,11 +313,28 @@ public class MemberService : IMemberService
         return UpdateMemberStatusResult.Success;
     }
 
-    public async Task<List<MemberSearchAPIViewModel>> QuickSearchMembersAsync(string keyword)
+    public async Task<PagedMemberSearchResultAPIViewModel> QuickSearchMembersAsync(
+        string keyword,
+        int page,
+        int pageSize)
     {
+        if (page <= 0)
+        {
+            page = 1;
+        }
+
+        if (pageSize <= 0 || pageSize > 20)
+        {
+            pageSize = 20;
+        }
+
         if (string.IsNullOrWhiteSpace(keyword))
         {
-            return new List<MemberSearchAPIViewModel>();
+            return new PagedMemberSearchResultAPIViewModel
+            {
+                Page = page,
+                PageSize = pageSize
+            };
         }
 
         string trimmedKeyword = keyword.Trim();
@@ -320,9 +342,16 @@ public class MemberService : IMemberService
         IQueryable<Member> query = BuildMemberQuery();
         query = ApplyKeywordFilter(query, trimmedKeyword, includeMemberCode: true);
 
-        List<MemberSearchAPIViewModel> results = await query
+        int totalItems = await query.CountAsync();
+        int totalPages = totalItems == 0
+            ? 0
+            : (int)Math.Ceiling((double)totalItems / pageSize);
+
+        List<MemberSearchAPIViewModel> items = await query
             .OrderBy(m => m.MemberCode)
-            .Take(20)
+            .ThenBy(m => m.AccountId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(m => new MemberSearchAPIViewModel
             {
                 AccountId = m.AccountId,
@@ -330,10 +359,105 @@ public class MemberService : IMemberService
                 FullName = m.FullName,
                 Email = m.Account.Email,
                 Phone = m.Account.Phone,
-                Status = m.Account.Status
+                AccountStatus = m.Account.Status,
+                MembershipStatus = "NONE"
             })
             .ToListAsync();
 
-        return results;
+        if (items.Count > 0)
+        {
+            List<string> memberIds = items
+                .Select(item => item.AccountId)
+                .ToList();
+
+            List<MemberSubscription> confirmedSubscriptions = await _context.MemberSubscriptions
+                .AsNoTracking()
+                .Where(subscription =>
+                    memberIds.Contains(subscription.MemberId) &&
+                    subscription.Status == "CONFIRMED")
+                .OrderBy(subscription => subscription.MemberId)
+                .ThenBy(subscription => subscription.StartDate)
+                .ThenBy(subscription => subscription.EndDate)
+                .ThenBy(subscription => subscription.Id)
+                .ToListAsync();
+
+            string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
+                ?? throw new InvalidOperationException(
+                    "BusinessSettings:TimeZoneId is not configured.");
+            TimeZoneInfo businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            DateOnly today = DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, businessTimeZone));
+
+            foreach (MemberSearchAPIViewModel item in items)
+            {
+                List<MemberSubscription> subscriptions = confirmedSubscriptions
+                    .Where(subscription => subscription.MemberId == item.AccountId)
+                    .ToList();
+
+                MemberSubscription? selectedSubscription = subscriptions
+                    .Where(subscription =>
+                        subscription.StartDate <= today && subscription.EndDate >= today)
+                    .OrderByDescending(subscription => subscription.EndDate)
+                    .ThenByDescending(subscription => subscription.Id)
+                    .FirstOrDefault();
+
+                if (selectedSubscription is not null)
+                {
+                    ApplyMembershipSummary(item, selectedSubscription, "ACTIVE", today);
+                    continue;
+                }
+
+                selectedSubscription = subscriptions
+                    .Where(subscription => subscription.StartDate > today)
+                    .OrderBy(subscription => subscription.StartDate)
+                    .ThenBy(subscription => subscription.Id)
+                    .FirstOrDefault();
+
+                if (selectedSubscription is not null)
+                {
+                    ApplyMembershipSummary(item, selectedSubscription, "UPCOMING", today);
+                    continue;
+                }
+
+                selectedSubscription = subscriptions
+                    .Where(subscription => subscription.EndDate < today)
+                    .OrderByDescending(subscription => subscription.EndDate)
+                    .ThenByDescending(subscription => subscription.Id)
+                    .FirstOrDefault();
+
+                if (selectedSubscription is not null)
+                {
+                    ApplyMembershipSummary(item, selectedSubscription, "EXPIRED", today);
+                }
+            }
+        }
+
+        return new PagedMemberSearchResultAPIViewModel
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalItems = totalItems,
+            TotalPages = totalPages
+        };
+    }
+
+    private static void ApplyMembershipSummary(
+        MemberSearchAPIViewModel item,
+        MemberSubscription subscription,
+        string membershipStatus,
+        DateOnly today)
+    {
+        item.PackageName = subscription.PackageName;
+        item.MembershipStatus = membershipStatus;
+        item.StartDate = subscription.StartDate;
+        item.EndDate = subscription.EndDate;
+
+        if (membershipStatus == "ACTIVE")
+        {
+            int daysRemaining = subscription.EndDate.DayNumber - today.DayNumber;
+            item.DaysRemaining = daysRemaining;
+            item.IsExpiringSoon = daysRemaining < 7;
+        }
     }
 }

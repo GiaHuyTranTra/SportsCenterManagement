@@ -113,16 +113,20 @@ public class MemberController : ControllerBase
         }
     }
 
-    [Authorize(Roles = "Receptionist")]
+    [Authorize(Roles = "Receptionist,CenterManager")]
     [HttpGet("quick-search")]
-    public async Task<IActionResult> QuickSearchAsync([FromQuery] string? keyword)
+    public async Task<IActionResult> QuickSearchAsync(
+        [FromQuery] string? keyword,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
     {
         if (string.IsNullOrWhiteSpace(keyword))
         {
             return BadRequest("Keyword is required");
         }
 
-        List<MemberSearchAPIViewModel> results = await _memberService.QuickSearchMembersAsync(keyword);
+        PagedMemberSearchResultAPIViewModel results =
+            await _memberService.QuickSearchMembersAsync(keyword, page, pageSize);
         return Ok(results);
     }
 

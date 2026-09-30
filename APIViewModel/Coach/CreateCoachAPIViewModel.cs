@@ -16,6 +16,7 @@ public class CreateCoachAPIViewModel
     public string FullName { get; set; } = null!;
 
     [Required]
+    [RegularExpression("^[0-9]{10}$")]
     public string Phone { get; set; } = null!;
 
     public string? Specialization { get; set; }

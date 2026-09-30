@@ -12,5 +12,17 @@ public class MemberSearchAPIViewModel
 
     public string? Phone { get; set; }
 
-    public string Status { get; set; } = null!;
+    public string AccountStatus { get; set; } = null!;
+
+    public string? PackageName { get; set; }
+
+    public string MembershipStatus { get; set; } = null!;
+
+    public DateOnly? StartDate { get; set; }
+
+    public DateOnly? EndDate { get; set; }
+
+    public int? DaysRemaining { get; set; }
+
+    public bool IsExpiringSoon { get; set; }
 }
