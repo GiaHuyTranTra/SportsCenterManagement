@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using APIViewModel.Member;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Services.PasswordHashService;
 
 namespace Services.MemberService;
@@ -18,13 +19,16 @@ public class MemberService : IMemberService
 
     private readonly SportsCenterManagementContext _context;
     private readonly IPasswordHashService _passwordHashService;
+    private readonly IConfiguration? _configuration;
 
     public MemberService(
         SportsCenterManagementContext context,
-        IPasswordHashService passwordHashService)
+        IPasswordHashService passwordHashService,
+        IConfiguration? configuration = null)
     {
         _context = context;
         _passwordHashService = passwordHashService;
+        _configuration = configuration;
     }
 
     private static string? NormalizeStatus(string? status)
@@ -506,6 +510,135 @@ public class MemberService : IMemberService
             .ToListAsync();
 
         return results;
+    }
+
+    public async Task<List<MembershipStatusAPIViewModel>> GetMembershipStatusesAsync(
+        string? search,
+        string? filter)
+    {
+        string normalizedFilter = string.IsNullOrWhiteSpace(filter)
+            ? "ALL"
+            : filter.Trim().ToUpperInvariant();
+        HashSet<string> allowedFilters = new HashSet<string>
+        {
+            "ALL",
+            "ACTIVE",
+            "EXPIRING",
+            "EXPIRED",
+            "SUSPENDED",
+            "UPCOMING",
+            "PENDING_PAYMENT",
+            "NONE"
+        };
+        if (!allowedFilters.Contains(normalizedFilter))
+        {
+            throw new ArgumentException("Invalid membership status filter.", nameof(filter));
+        }
+
+        string timeZoneId = _configuration?["BusinessSettings:TimeZoneId"]
+            ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured.");
+        TimeZoneInfo businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        DateOnly today = DateOnly.FromDateTime(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, businessTimeZone));
+        IQueryable<Member> query = _context.Members
+            .AsNoTracking()
+            .Include(member => member.Account)
+            .Include(member => member.MemberSubscriptions
+                .Where(subscription =>
+                    subscription.Status == "CONFIRMED" ||
+                    subscription.Status == "PENDING_PAYMENT"))
+            .Where(member =>
+                member.Account.Role.Name == "Member" &&
+                member.Account.DeletedAt == null);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string normalizedSearch = search.Trim().ToLowerInvariant();
+            query = query.Where(member =>
+                member.MemberCode.ToLower().Contains(normalizedSearch) ||
+                (member.FullName != null && member.FullName.ToLower().Contains(normalizedSearch)) ||
+                member.Account.Email.ToLower().Contains(normalizedSearch) ||
+                (member.Account.Phone != null && member.Account.Phone.Contains(normalizedSearch)));
+        }
+
+        List<Member> members = await query
+            .OrderBy(member => member.MemberCode)
+            .ToListAsync();
+        List<MembershipStatusAPIViewModel> rows = new List<MembershipStatusAPIViewModel>();
+
+        foreach (Member member in members)
+        {
+            MemberSubscription? current = member.MemberSubscriptions
+                .Where(subscription =>
+                    subscription.Status == "CONFIRMED" &&
+                    subscription.StartDate <= today &&
+                    subscription.EndDate >= today)
+                .OrderByDescending(subscription => subscription.StartDate)
+                .ThenByDescending(subscription => subscription.Id)
+                .FirstOrDefault();
+            MemberSubscription? upcoming = member.MemberSubscriptions
+                .Where(subscription =>
+                    subscription.Status == "CONFIRMED" &&
+                    subscription.StartDate > today)
+                .OrderBy(subscription => subscription.StartDate)
+                .ThenBy(subscription => subscription.Id)
+                .FirstOrDefault();
+            MemberSubscription? expired = member.MemberSubscriptions
+                .Where(subscription =>
+                    subscription.Status == "CONFIRMED" &&
+                    subscription.EndDate < today)
+                .OrderByDescending(subscription => subscription.EndDate)
+                .ThenByDescending(subscription => subscription.Id)
+                .FirstOrDefault();
+            MemberSubscription? pending = member.MemberSubscriptions
+                .Where(subscription => subscription.Status == "PENDING_PAYMENT")
+                .OrderByDescending(subscription => subscription.CreatedAt)
+                .ThenByDescending(subscription => subscription.Id)
+                .FirstOrDefault();
+            MemberSubscription? selected = current ?? upcoming ?? expired ?? pending;
+            string status = current is not null
+                ? current.IsSuspended ? "SUSPENDED" : "ACTIVE"
+                : upcoming is not null
+                    ? "UPCOMING"
+                    : expired is not null
+                        ? "EXPIRED"
+                        : pending is not null
+                            ? "PENDING_PAYMENT"
+                            : "NONE";
+            int remainingDays = current is null
+                ? 0
+                : current.EndDate.DayNumber - today.DayNumber + 1;
+            MembershipStatusAPIViewModel row = new MembershipStatusAPIViewModel
+            {
+                AccountId = member.AccountId,
+                MemberCode = member.MemberCode,
+                FullName = member.FullName,
+                Email = member.Account.Email,
+                Phone = member.Account.Phone,
+                Status = status,
+                RemainingDays = remainingDays,
+                ExpiringSoon = remainingDays >= 1 && remainingDays <= 6,
+                SubscriptionId = selected?.Id,
+                PackageId = selected?.PackageId,
+                PackageName = selected?.PackageName,
+                StartDate = selected?.StartDate,
+                EndDate = selected?.EndDate,
+                SuspensionReason = current?.SuspensionReason,
+                UpcomingSubscriptionId = upcoming?.Id,
+                UpcomingPackageName = upcoming?.PackageName,
+                UpcomingStartDate = upcoming?.StartDate,
+                UpcomingEndDate = upcoming?.EndDate
+            };
+
+            if (normalizedFilter == "ALL" ||
+                normalizedFilter == row.Status ||
+                (normalizedFilter == "EXPIRING" && row.ExpiringSoon))
+            {
+                rows.Add(row);
+            }
+        }
+
+        return rows;
     }
 
     private static (

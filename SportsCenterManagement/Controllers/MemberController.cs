@@ -135,6 +135,32 @@ public class MemberController : ControllerBase
         return Ok(result);
     }
 
+    [Authorize(Roles = "Receptionist,CenterManager")]
+    [HttpGet("membership-status")]
+    public async Task<IActionResult> GetMembershipStatusesAsync(
+        [FromQuery] string? search = null,
+        [FromQuery] string? filter = "ALL")
+    {
+        string normalizedFilter = string.IsNullOrWhiteSpace(filter)
+            ? "ALL"
+            : filter.Trim().ToUpperInvariant();
+        if (normalizedFilter != "ALL" &&
+            normalizedFilter != "ACTIVE" &&
+            normalizedFilter != "EXPIRING" &&
+            normalizedFilter != "EXPIRED" &&
+            normalizedFilter != "SUSPENDED" &&
+            normalizedFilter != "UPCOMING" &&
+            normalizedFilter != "PENDING_PAYMENT" &&
+            normalizedFilter != "NONE")
+        {
+            return BadRequest("Invalid membership status filter.");
+        }
+
+        List<MembershipStatusAPIViewModel> rows =
+            await _memberService.GetMembershipStatusesAsync(search, normalizedFilter);
+        return Ok(rows);
+    }
+
     [Authorize(Roles = "CenterManager")]
     [HttpPatch("{accountId}")]
     public async Task<IActionResult> UpdateMemberAsync(

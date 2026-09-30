@@ -72,4 +72,8 @@ public interface IMemberService
         string status);
 
     Task<List<MemberSearchAPIViewModel>> QuickSearchMembersAsync(string keyword);
+
+    Task<List<MembershipStatusAPIViewModel>> GetMembershipStatusesAsync(
+        string? search,
+        string? filter);
 }
