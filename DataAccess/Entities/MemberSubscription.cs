@@ -27,6 +27,10 @@ public partial class MemberSubscription
 
     public string Status { get; set; } = null!;
 
+    public bool IsSuspended { get; set; }
+
+    public string? SuspensionReason { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public virtual Member Member { get; set; } = null!;
