@@ -6,13 +6,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Services.MemberSubscriptionService;
-using SportsCenterManagement.Filter;
 
 namespace SportsCenterManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[TypeFilter(typeof(AuthFilter))]
 public class MemberSubscriptionController : ControllerBase
 {
     private readonly IMemberSubscriptionService _subscriptionService;

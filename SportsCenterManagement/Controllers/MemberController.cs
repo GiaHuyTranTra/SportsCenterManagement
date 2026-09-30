@@ -5,13 +5,11 @@ using APIViewModel.Member;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.MemberService;
-using SportsCenterManagement.Filter;
 
 namespace SportsCenterManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[TypeFilter(typeof(AuthFilter))]
 public class MemberController : ControllerBase
 {
     private readonly IMemberService _memberService;

@@ -66,6 +66,23 @@ public class AuthService : IAuthService
         return (result, account);
     }
 
+    public async Task<LoginResponseAPIViewModel?> GetSessionAccountAsync(string accountId)
+    {
+        Account? account = await _context.Accounts
+            .AsNoTracking()
+            .Include(candidate => candidate.Role)
+            .Include(candidate => candidate.CenterManager)
+            .Include(candidate => candidate.Coach)
+            .Include(candidate => candidate.Member)
+            .Include(candidate => candidate.Receptionist)
+            .FirstOrDefaultAsync(candidate =>
+                candidate.Id == accountId &&
+                candidate.Status == "Active" &&
+                candidate.DeletedAt == null);
+
+        return account is null ? null : CreateLoginResponse(account);
+    }
+
     // Shared implementation for unified and role-specific login.
     // requiredRoleName: when non-null, only accounts with that role proceed;
     // mismatched role returns InvalidCredentials to avoid leaking account existence.
@@ -78,6 +95,10 @@ public class AuthService : IAuthService
         Account? initialAccount = await _context.Accounts
             .AsNoTracking()
             .Include(a => a.Role)
+            .Include(a => a.CenterManager)
+            .Include(a => a.Coach)
+            .Include(a => a.Member)
+            .Include(a => a.Receptionist)
             .Where(a => a.Email == normalizedEmail)
             .FirstOrDefaultAsync();
 
@@ -92,7 +113,7 @@ public class AuthService : IAuthService
             return (LoginResult.InvalidCredentials, null);
         }
 
-        if (initialAccount.Status != "Active")
+        if (initialAccount.Status != "Active" || initialAccount.DeletedAt is not null)
         {
             return (LoginResult.AccountInactive, null);
         }
@@ -145,6 +166,10 @@ public class AuthService : IAuthService
                     "SELECT * FROM [dbo].[Account] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {0}",
                     accountId)
                 .Include(a => a.Role)
+                .Include(a => a.CenterManager)
+                .Include(a => a.Coach)
+                .Include(a => a.Member)
+                .Include(a => a.Receptionist)
                 .FirstOrDefaultAsync();
 
             if (lockedAccount is null)
@@ -153,7 +178,7 @@ public class AuthService : IAuthService
                 return (LoginResult.InvalidCredentials, null);
             }
 
-            if (lockedAccount.Status != "Active")
+            if (lockedAccount.Status != "Active" || lockedAccount.DeletedAt is not null)
             {
                 await transaction.RollbackAsync();
                 return (LoginResult.AccountInactive, null);
@@ -201,14 +226,7 @@ public class AuthService : IAuthService
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            LoginResponseAPIViewModel loginResponse = new LoginResponseAPIViewModel
-            {
-                Id = lockedAccount.Id,
-                Email = lockedAccount.Email,
-                Role = lockedAccount.Role.Name
-            };
-
-            return (LoginResult.Success, loginResponse);
+            return (LoginResult.Success, CreateLoginResponse(lockedAccount));
         }
         catch (Exception ex) when (IsDeadlock(ex))
         {
@@ -227,6 +245,10 @@ public class AuthService : IAuthService
     {
         Account? account = await _context.Accounts
             .Include(a => a.Role)
+            .Include(a => a.CenterManager)
+            .Include(a => a.Coach)
+            .Include(a => a.Member)
+            .Include(a => a.Receptionist)
             .Where(a => a.Id == accountId)
             .FirstOrDefaultAsync();
 
@@ -235,7 +257,7 @@ public class AuthService : IAuthService
             return (LoginResult.InvalidCredentials, null);
         }
 
-        if (account.Status != "Active")
+        if (account.Status != "Active" || account.DeletedAt is not null)
         {
             return (LoginResult.AccountInactive, null);
         }
@@ -276,14 +298,7 @@ public class AuthService : IAuthService
         account.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        LoginResponseAPIViewModel loginResponse = new LoginResponseAPIViewModel
-        {
-            Id = account.Id,
-            Email = account.Email,
-            Role = account.Role.Name
-        };
-
-        return (LoginResult.Success, loginResponse);
+        return (LoginResult.Success, CreateLoginResponse(account));
     }
 
     public async Task<(RequestPasswordChangeOtpResult Result, int RetryAfterSeconds)>
@@ -339,7 +354,7 @@ public class AuthService : IAuthService
             return ChangePasswordWithOtpResult.AccountNotFound;
         }
 
-        if (initialAccount.Status != "Active")
+        if (initialAccount.Status != "Active" || initialAccount.DeletedAt is not null)
         {
             return ChangePasswordWithOtpResult.AccountInactive;
         }
@@ -467,7 +482,7 @@ public class AuthService : IAuthService
             return (RequestPasswordChangeOtpResult.AccountNotFound, 0, 0, null);
         }
 
-        if (account.Status != "Active")
+        if (account.Status != "Active" || account.DeletedAt is not null)
         {
             return (RequestPasswordChangeOtpResult.AccountInactive, 0, 0, null);
         }
@@ -595,7 +610,7 @@ public class AuthService : IAuthService
             return ChangePasswordWithOtpResult.AccountNotFound;
         }
 
-        if (account.Status != "Active")
+        if (account.Status != "Active" || account.DeletedAt is not null)
         {
             return ChangePasswordWithOtpResult.AccountInactive;
         }
@@ -692,6 +707,27 @@ public class AuthService : IAuthService
         }
 
         return null;
+    }
+
+    private static LoginResponseAPIViewModel CreateLoginResponse(Account account)
+    {
+        string? fullName = account.Role.Name switch
+        {
+            "CenterManager" => account.CenterManager?.FullName,
+            "Coach" => account.Coach?.FullName,
+            "Member" => account.Member?.FullName,
+            "Receptionist" => account.Receptionist?.FullName,
+            _ => null
+        };
+
+        return new LoginResponseAPIViewModel
+        {
+            Id = account.Id,
+            Email = account.Email,
+            Role = account.Role.Name,
+            FullName = fullName,
+            CreatedAt = account.CreatedAt
+        };
     }
 
     // Walk the full exception chain to detect a SQL Server deadlock (1205) at any depth.

@@ -34,7 +34,10 @@ public class Program
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-        builder.Services.AddControllers()
+        builder.Services.AddControllers(options =>
+        {
+            options.Filters.AddService<AuthFilter>();
+        })
             .ConfigureApiBehaviorOptions(options =>
             {
                 options.InvalidModelStateResponseFactory = context =>
