@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
@@ -11,7 +12,7 @@ namespace SportsCenterManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Receptionist,CenterManager")]
+[Authorize(Roles = "Receptionist,CenterManager,Member")]
 [TypeFilter(typeof(AuthFilter))]
 public class MembershipInvoiceController : ControllerBase
 {
@@ -22,7 +23,27 @@ public class MembershipInvoiceController : ControllerBase
         _invoiceService = invoiceService;
     }
 
+    [HttpGet]
+    public async Task<IActionResult> GetInvoicesAsync(
+        [FromQuery] string? memberId = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? paymentMethod = null)
+    {
+        string? staffAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(staffAccountId))
+        {
+            return Unauthorized();
+        }
+
+        List<MembershipReceiptAPIViewModel> invoices =
+            await _invoiceService.GetInvoicesAsync(staffAccountId, memberId, status, search, paymentMethod);
+
+        return Ok(invoices);
+    }
+
     [HttpPost("{invoiceId:int}/pay")]
+    [Authorize(Roles = "Receptionist,CenterManager")]
     public async Task<IActionResult> PayInvoiceAsync(
         [FromRoute] int invoiceId,
         [FromBody] PayMembershipInvoiceAPIViewModel request)
@@ -111,6 +132,41 @@ public class MembershipInvoiceController : ControllerBase
                 return StatusCode(StatusCodes.Status423Locked, "Staff account is locked.");
             case GetReceiptResult.DataIntegrityViolation:
                 return StatusCode(StatusCodes.Status500InternalServerError, "Internal data integrity error.");
+            default:
+                return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    [HttpPost("{invoiceId:int}/cancel")]
+    public async Task<IActionResult> CancelInvoiceAsync([FromRoute] int invoiceId)
+    {
+        string? callerAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(callerAccountId))
+        {
+            return Unauthorized();
+        }
+
+        CancelInvoiceResult result =
+            await _invoiceService.CancelPendingInvoiceAsync(invoiceId, callerAccountId);
+
+        switch (result)
+        {
+            case CancelInvoiceResult.Success:
+                return Ok(new { message = "Membership invoice and pending order have been canceled." });
+            case CancelInvoiceResult.InvoiceNotFound:
+                return NotFound("Membership invoice not found.");
+            case CancelInvoiceResult.InvalidInvoiceState:
+                return BadRequest("Only invoices in PENDING_PAYMENT state can be canceled.");
+            case CancelInvoiceResult.CallerNotFound:
+                return NotFound("Account not found.");
+            case CancelInvoiceResult.CallerRoleNotAllowed:
+                return StatusCode(StatusCodes.Status403Forbidden, "Account does not have required permissions.");
+            case CancelInvoiceResult.CallerInactive:
+                return StatusCode(StatusCodes.Status403Forbidden, "Account is inactive.");
+            case CancelInvoiceResult.CallerLocked:
+                return StatusCode(StatusCodes.Status423Locked, "Account is locked.");
+            case CancelInvoiceResult.ConcurrencyConflict:
+                return Conflict("Data was modified by another transaction or deadlock occurred. Please retry.");
             default:
                 return StatusCode(StatusCodes.Status500InternalServerError);
         }

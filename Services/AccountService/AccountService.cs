@@ -1,4 +1,5 @@
 using APIViewModel.CenterManager;
+using APIViewModel.AccountProfile;
 using APIViewModel.Coach;
 using APIViewModel.Member;
 using APIViewModel.Receptionist;
@@ -21,6 +22,106 @@ public class AccountService : IAccountService
         _passwordHashService = passwordHashService;
     }
 
+    public async Task<AccountProfileAPIViewModel?> GetProfileAsync(string accountId)
+    {
+        Account? account = await ProfileQuery()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == accountId);
+        return account is null ? null : MapProfile(account);
+    }
+
+    public async Task<AccountProfileAPIViewModel?> UpdateProfileAsync(
+        string accountId,
+        UpdateAccountProfileAPIViewModel request)
+    {
+        Account? account = await ProfileQuery()
+            .FirstOrDefaultAsync(candidate => candidate.Id == accountId);
+        if (account is null)
+        {
+            return null;
+        }
+
+        string fullName = request.FullName.Trim();
+        string? phone = string.IsNullOrWhiteSpace(request.Phone)
+            ? null
+            : request.Phone.Trim();
+        if (phone is not null)
+        {
+            bool duplicatePhone = await _context.Accounts.AnyAsync(candidate =>
+                candidate.Id != accountId && candidate.Phone == phone);
+            if (duplicatePhone)
+            {
+                return null;
+            }
+        }
+
+        account.Phone = phone;
+        account.UpdatedAt = DateTime.UtcNow;
+        switch (account.Role.Name)
+        {
+            case "Member" when account.Member is not null:
+                account.Member.FullName = fullName;
+                account.Member.DateOfBirth = request.DateOfBirth;
+                account.Member.AvatarUrl = NormalizeOptional(request.AvatarUrl);
+                break;
+            case "Coach" when account.Coach is not null:
+                account.Coach.FullName = fullName;
+                account.Coach.Specialization = NormalizeOptional(request.Specialization);
+                account.Coach.WorkSchedule = NormalizeOptional(request.WorkSchedule);
+                break;
+            case "Receptionist" when account.Receptionist is not null:
+                account.Receptionist.FullName = fullName;
+                account.Receptionist.WorkShift = NormalizeOptional(request.WorkSchedule);
+                break;
+            case "CenterManager" when account.CenterManager is not null:
+                account.CenterManager.FullName = fullName;
+                break;
+            default:
+                return null;
+        }
+
+        await _context.SaveChangesAsync();
+        return MapProfile(account);
+    }
+
+    private IQueryable<Account> ProfileQuery()
+    {
+        return _context.Accounts
+            .Include(account => account.Role)
+            .Include(account => account.Member)
+            .Include(account => account.Coach)
+            .Include(account => account.Receptionist)
+            .Include(account => account.CenterManager);
+    }
+
+    private static AccountProfileAPIViewModel MapProfile(Account account)
+    {
+        string fullName = account.Member?.FullName ??
+            account.Coach?.FullName ??
+            account.Receptionist?.FullName ??
+            account.CenterManager?.FullName ??
+            account.Email.Split('@')[0];
+        return new AccountProfileAPIViewModel
+        {
+            AccountId = account.Id,
+            Email = account.Email,
+            Role = account.Role.Name,
+            FullName = fullName,
+            Phone = account.Phone,
+            DateOfBirth = account.Member?.DateOfBirth,
+            AvatarUrl = account.Member?.AvatarUrl,
+            Specialization = account.Coach?.Specialization,
+            WorkSchedule = account.Coach?.WorkSchedule ?? account.Receptionist?.WorkShift,
+            MemberCode = account.Member?.MemberCode,
+            CreatedAt = account.CreatedAt
+        };
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     private async Task<bool> IsDuplicate(string email, string phone)
     {
         Account account = await _context.Accounts.Where(q => q.Email.ToLower().Equals(email.ToLower()) || q.Phone.Equals(phone)).FirstOrDefaultAsync();
@@ -40,7 +141,7 @@ public class AccountService : IAccountService
                 return false;
             }
 
-            Role role = await _context.Roles
+            Role? role = await _context.Roles
                 .Where(q => q.Name == "CenterManager")
                 .FirstOrDefaultAsync();
 
@@ -129,35 +230,38 @@ public class AccountService : IAccountService
         }
     }
 
-    public async Task<bool> CreateMemberAsync(CreateMemberAPIViewModel info)
+    public async Task<RegisterMemberResponseAPIViewModel?> CreateMemberAsync(
+        CreateMemberAPIViewModel info)
     {
         try
         {
             if (await IsDuplicate(info.Email, info.Phone!) || string.IsNullOrEmpty(info.MemberCode))
             {
-                return false;
+                return null;
             }
 
             bool duplicateMemberCode = await _context.Members
                 .AnyAsync(q => q.MemberCode == info.MemberCode);
             if (duplicateMemberCode)
             {
-                return false;
+                return null;
             }
 
-            Role role = await _context.Roles
+            Role? role = await _context.Roles
                 .Where(q => q.Name == "Member")
                 .FirstOrDefaultAsync();
 
             if (role is null)
             {
-                return false;
+                return null;
             }
+
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
 
             Account newAccount = new Account
             {
                 Id = Guid.NewGuid().ToString(),
-                Email = info.Email,
+                Email = normalizedEmail,
                 Phone = info.Phone,
                 PasswordHash = _passwordHashService.HashPassword(info.Password),
                 RoleId = role.Id,
@@ -179,11 +283,16 @@ public class AccountService : IAccountService
 
             await _context.Members.AddAsync(newMember);
             await _context.SaveChangesAsync();
-            return true;
+            return new RegisterMemberResponseAPIViewModel
+            {
+                AccountId = newAccount.Id,
+                Email = newAccount.Email,
+                MemberCode = newMember.MemberCode
+            };
         }
         catch (Exception)
         {
-            return false;
+            return null;
         }
     }
 

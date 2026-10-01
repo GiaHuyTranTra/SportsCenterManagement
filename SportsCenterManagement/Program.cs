@@ -13,6 +13,7 @@ using Services.AccountService;
 using Services.AccessTokenService;
 using Services.AuthService;
 using Services.EmailService;
+using Services.EmailVerificationService;
 using Services.MemberService;
 using Services.MembershipPackageService;
 using Services.MembershipInvoiceService;
@@ -204,6 +205,8 @@ public class Program
             containerBuilder.RegisterType<AccountService>().As<IAccountService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
             containerBuilder.RegisterType<EmailService>().As<IEmailService>();
+            containerBuilder.RegisterType<EmailVerificationService>()
+                .As<IEmailVerificationService>();
             containerBuilder.RegisterType<MemberService>().As<IMemberService>();
             containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
             containerBuilder.RegisterType<MembershipInvoiceService>().As<IMembershipInvoiceService>();

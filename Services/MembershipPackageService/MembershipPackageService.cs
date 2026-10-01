@@ -81,21 +81,46 @@ public class MembershipPackageService : IMembershipPackageService
             ? 0
             : (int)Math.Ceiling((double)totalItems / pageSize);
 
-        List<MembershipPackageListItemAPIViewModel> items = await query
+        List<MembershipPackage> pagedPackages = await query
             .OrderBy(package => package.Name)
             .ThenBy(package => package.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .ToListAsync();
+
+        int[] packageIds = pagedPackages
+            .Select(package => package.Id)
+            .ToArray();
+        List<PackageSubscriberCount> subscriberCountRows = await _context.MemberSubscriptions
+            .AsNoTracking()
+            .Where(subscription => packageIds.Contains(subscription.PackageId))
+            .GroupBy(subscription => subscription.PackageId)
+            .Select(group => new PackageSubscriberCount
+            {
+                PackageId = group.Key,
+                SubscriberCount = group
+                    .Select(subscription => subscription.MemberId)
+                    .Distinct()
+                    .Count()
+            })
+            .ToListAsync();
+        Dictionary<int, int> subscriberCounts = subscriberCountRows.ToDictionary(
+            item => item.PackageId,
+            item => item.SubscriberCount);
+
+        List<MembershipPackageListItemAPIViewModel> items = pagedPackages
             .Select(package => new MembershipPackageListItemAPIViewModel
             {
                 Id = package.Id,
                 Name = package.Name,
                 Price = package.Price,
                 DurationMonths = package.DurationMonths,
+                Benefits = DeserializeBenefits(package.Benefits),
+                SubscriberCount = subscriberCounts.GetValueOrDefault(package.Id),
                 IsActive = package.IsActive,
                 CreatedAt = package.CreatedAt
             })
-            .ToListAsync();
+            .ToList();
 
         return new PagedMembershipPackageResultAPIViewModel
         {
@@ -320,5 +345,12 @@ public class MembershipPackageService : IMembershipPackageService
             CreatedAt = package.CreatedAt,
             UpdatedAt = package.UpdatedAt
         };
+    }
+
+    private sealed class PackageSubscriberCount
+    {
+        public int PackageId { get; set; }
+
+        public int SubscriberCount { get; set; }
     }
 }

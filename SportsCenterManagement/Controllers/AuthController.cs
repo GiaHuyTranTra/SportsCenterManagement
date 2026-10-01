@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Services.AccessTokenService;
 using Services.AuthService;
+using Services.EmailVerificationService;
 using SportsCenterManagement.Filter;
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
@@ -19,15 +20,18 @@ public class AuthController : ControllerBase
     private readonly IAuthService _authService;
     private readonly IAccessTokenService _accessToken;
     private readonly IMemoryCache _cache;
+    private readonly IEmailVerificationService _emailVerification;
 
     public AuthController(
         IAuthService authService,
         IAccessTokenService accesstoken,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IEmailVerificationService emailVerification)
     {
         _authService = authService;
         _accessToken = accesstoken;
         _cache = cache;
+        _emailVerification = emailVerification;
     }
 
     [AllowAnonymous]
@@ -39,6 +43,22 @@ public class AuthController : ControllerBase
 
         if (result == LoginResult.Success && account is not null)
         {
+            VerifyEmailCodeResult verification = _emailVerification.VerifyCode(
+                account.Email,
+                "LOGIN",
+                request.EmailVerificationCode);
+            if (verification == VerifyEmailCodeResult.CodeNotFound)
+            {
+                verification = _emailVerification.VerifyCode(
+                    account.Email,
+                    "REGISTER",
+                    request.EmailVerificationCode);
+            }
+            if (verification != VerifyEmailCodeResult.Success)
+            {
+                return CreateEmailVerificationError(verification);
+            }
+
             GeneratedAccessTokenAPIViewModel tokenMeta =
                 _accessToken.GenerateAccessTokenWithMetadata(account);
 
@@ -55,75 +75,33 @@ public class AuthController : ControllerBase
             return Ok(session);
         }
 
-        return result switch
+        return CreateLoginError(result);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("request-login-email-verification")]
+    public async Task<IActionResult> RequestLoginEmailVerificationAsync(
+        RequestLoginEmailVerificationAPIViewModel request)
+    {
+        LoginRequestAPIViewModel loginRequest = new LoginRequestAPIViewModel
         {
-            LoginResult.InvalidCredentials => Unauthorized(new ApiErrorResponseAPIViewModel
-            {
-                Success = false,
-                Error = new ApiErrorAPIViewModel
-                {
-                    Code = "INVALID_CREDENTIALS",
-                    Message = "The email or password is incorrect.",
-                    Details = null
-                },
-                TraceId = HttpContext.TraceIdentifier
-            }),
-            LoginResult.AccountLocked => StatusCode(423, new ApiErrorResponseAPIViewModel
-            {
-                Success = false,
-                Error = new ApiErrorAPIViewModel
-                {
-                    Code = "ACCOUNT_LOCKED",
-                    Message = "This account has been locked due to too many failed login attempts.",
-                    Details = null
-                },
-                TraceId = HttpContext.TraceIdentifier
-            }),
-            LoginResult.AccountInactive => StatusCode(403, new ApiErrorResponseAPIViewModel
-            {
-                Success = false,
-                Error = new ApiErrorAPIViewModel
-                {
-                    Code = "ACCOUNT_INACTIVE",
-                    Message = "This account is not active.",
-                    Details = null
-                },
-                TraceId = HttpContext.TraceIdentifier
-            }),
-            LoginResult.ConcurrentPasswordChange => Conflict(new ApiErrorResponseAPIViewModel
-            {
-                Success = false,
-                Error = new ApiErrorAPIViewModel
-                {
-                    Code = "CONCURRENT_PASSWORD_CHANGE",
-                    Message = "A concurrent change was detected. Please try again.",
-                    Details = null
-                },
-                TraceId = HttpContext.TraceIdentifier
-            }),
-            LoginResult.ConcurrencyConflict => Conflict(new ApiErrorResponseAPIViewModel
-            {
-                Success = false,
-                Error = new ApiErrorAPIViewModel
-                {
-                    Code = "CONCURRENCY_CONFLICT",
-                    Message = "A concurrent request conflict was detected. Please try again.",
-                    Details = null
-                },
-                TraceId = HttpContext.TraceIdentifier
-            }),
-            _ => StatusCode(500, new ApiErrorResponseAPIViewModel
-            {
-                Success = false,
-                Error = new ApiErrorAPIViewModel
-                {
-                    Code = "INTERNAL_SERVER_ERROR",
-                    Message = "An unexpected error occurred.",
-                    Details = null
-                },
-                TraceId = HttpContext.TraceIdentifier
-            })
+            Email = request.Email,
+            Password = request.Password
         };
+        (LoginResult result, LoginResponseAPIViewModel? account) =
+            await _authService.LoginAsync(loginRequest);
+        if (result != LoginResult.Success || account is null)
+        {
+            return CreateLoginError(result);
+        }
+
+        (RequestEmailVerificationResult requestResult, int retryAfterSeconds, string? demoCode) =
+            await _emailVerification.RequestCodeAsync(account.Email, "LOGIN");
+        return CreateEmailVerificationRequestResponse(
+            requestResult,
+            retryAfterSeconds,
+            demoCode,
+            account.Email);
     }
 
     [Authorize]
@@ -418,6 +396,96 @@ public class AuthController : ControllerBase
         string cacheKey = "jwt:blacklist:" + jti;
         _cache.Set(cacheKey, true, tokenExpiresAt);
         return null;
+    }
+
+    private IActionResult CreateLoginError(LoginResult result)
+    {
+        return result switch
+        {
+            LoginResult.InvalidCredentials => Unauthorized(CreateError(
+                "INVALID_CREDENTIALS",
+                "The email or password is incorrect.")),
+            LoginResult.AccountLocked => StatusCode(
+                StatusCodes.Status423Locked,
+                CreateError(
+                    "ACCOUNT_LOCKED",
+                    "This account has been locked due to too many failed login attempts.")),
+            LoginResult.AccountInactive => StatusCode(
+                StatusCodes.Status403Forbidden,
+                CreateError("ACCOUNT_INACTIVE", "This account is not active.")),
+            LoginResult.ConcurrentPasswordChange => Conflict(CreateError(
+                "CONCURRENT_PASSWORD_CHANGE",
+                "A concurrent change was detected. Please try again.")),
+            LoginResult.ConcurrencyConflict => Conflict(CreateError(
+                "CONCURRENCY_CONFLICT",
+                "A concurrent request conflict was detected. Please try again.")),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+        };
+    }
+
+    private IActionResult CreateEmailVerificationRequestResponse(
+        RequestEmailVerificationResult result,
+        int retryAfterSeconds,
+        string? demoCode,
+        string email)
+    {
+        return result switch
+        {
+            RequestEmailVerificationResult.Success => Ok(
+                new EmailVerificationOtpResponseAPIViewModel
+                {
+                    Message = "A verification code was sent to " + email + ".",
+                    ExpiresInSeconds = 300,
+                    CooldownSeconds = 60,
+                    DemoCode = demoCode
+                }),
+            RequestEmailVerificationResult.CooldownActive => StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                CreateError(
+                    "OTP_COOLDOWN_ACTIVE",
+                    "Please wait before requesting another verification code.",
+                    new Dictionary<string, int>
+                    {
+                        ["retryAfterSeconds"] = retryAfterSeconds
+                    })),
+            RequestEmailVerificationResult.DeliveryFailed => StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                CreateError(
+                    "OTP_DELIVERY_FAILED",
+                    "The verification code could not be delivered. Please try again.")),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+        };
+    }
+
+    private IActionResult CreateEmailVerificationError(VerifyEmailCodeResult result)
+    {
+        return result switch
+        {
+            VerifyEmailCodeResult.CodeRequired => BadRequest(CreateError(
+                "EMAIL_VERIFICATION_REQUIRED",
+                "An email verification code is required.")),
+            VerifyEmailCodeResult.CodeNotFound => BadRequest(CreateError(
+                "EMAIL_VERIFICATION_NOT_FOUND",
+                "Request a new email verification code before continuing.")),
+            VerifyEmailCodeResult.CodeExpired => BadRequest(CreateError(
+                "EMAIL_VERIFICATION_EXPIRED",
+                "The email verification code has expired.")),
+            VerifyEmailCodeResult.InvalidCode => BadRequest(CreateError(
+                "INVALID_EMAIL_VERIFICATION_CODE",
+                "The email verification code is incorrect.")),
+            VerifyEmailCodeResult.AttemptsExceeded => StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                CreateError(
+                    "EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED",
+                    "The email verification code is no longer valid.")),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+        };
     }
 
     private ApiErrorResponseAPIViewModel CreateError(

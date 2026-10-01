@@ -1,11 +1,16 @@
+using APIViewModel.AccountProfile;
+using APIViewModel.Auth;
 using APIViewModel.CenterManager;
 using APIViewModel.Coach;
+using APIViewModel.Common;
 using APIViewModel.Member;
 using APIViewModel.Receptionist;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.AccountService;
+using Services.EmailVerificationService;
 using SportsCenterManagement.Filter;
+using System.Security.Claims;
 
 namespace SportsCenterManagement.Controllers
 {
@@ -14,10 +19,49 @@ namespace SportsCenterManagement.Controllers
     public class AccountController : ControllerBase
     {
         private readonly IAccountService _account;
+        private readonly IEmailVerificationService _emailVerification;
 
-        public AccountController(IAccountService account)
+        public AccountController(
+            IAccountService account,
+            IEmailVerificationService emailVerification)
         {
             _account = account;
+            _emailVerification = emailVerification;
+        }
+
+        [Authorize]
+        [TypeFilter(typeof(AuthFilter))]
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetProfileAsync()
+        {
+            string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return Unauthorized();
+            }
+
+            AccountProfileAPIViewModel? profile =
+                await _account.GetProfileAsync(accountId);
+            return profile is null ? NotFound("Account profile not found.") : Ok(profile);
+        }
+
+        [Authorize]
+        [TypeFilter(typeof(AuthFilter))]
+        [HttpPatch("profile")]
+        public async Task<IActionResult> UpdateProfileAsync(
+            UpdateAccountProfileAPIViewModel request)
+        {
+            string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return Unauthorized();
+            }
+
+            AccountProfileAPIViewModel? profile =
+                await _account.UpdateProfileAsync(accountId, request);
+            return profile is null
+                ? Conflict("Account profile could not be updated.")
+                : Ok(profile);
         }
 
         [Authorize(Roles = "CenterManager")]
@@ -78,18 +122,19 @@ namespace SportsCenterManagement.Controllers
             }
         }
 
-        [Authorize(Roles = "CenterManager")]
+        [Authorize(Roles = "CenterManager,Receptionist")]
         [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_member")]
         public async Task<IActionResult> CreateMemberAsync(CreateMemberAPIViewModel info)
         {
             if (ModelState.IsValid)
             {
-                bool isCreated = await _account.CreateMemberAsync(info);
+                RegisterMemberResponseAPIViewModel? createdMember =
+                    await _account.CreateMemberAsync(info);
 
-                if (isCreated)
+                if (createdMember is not null)
                 {
-                    return Ok("Create member successful");
+                    return Ok(createdMember);
                 }
                 else
                 {
@@ -137,6 +182,51 @@ namespace SportsCenterManagement.Controllers
         }
 
         [AllowAnonymous]
+        [HttpPost("request-register-email-verification")]
+        public async Task<IActionResult> RequestRegisterEmailVerificationAsync(
+            RequestRegistrationEmailVerificationAPIViewModel request)
+        {
+            string normalizedEmail = request.Email.Trim().ToLowerInvariant();
+            if (await _account.IsEmailExistsAsync(normalizedEmail))
+            {
+                return Conflict(CreateError(
+                    "EMAIL_ALREADY_EXISTS",
+                    "Email already exists."));
+            }
+
+            (RequestEmailVerificationResult result, int retryAfterSeconds, string? demoCode) =
+                await _emailVerification.RequestCodeAsync(normalizedEmail, "REGISTER");
+            return result switch
+            {
+                RequestEmailVerificationResult.Success => Ok(
+                    new EmailVerificationOtpResponseAPIViewModel
+                    {
+                        Message = "A verification code was sent to " + normalizedEmail + ".",
+                        ExpiresInSeconds = 300,
+                        CooldownSeconds = 60,
+                        DemoCode = demoCode
+                    }),
+                RequestEmailVerificationResult.CooldownActive => StatusCode(
+                    StatusCodes.Status429TooManyRequests,
+                    CreateError(
+                        "OTP_COOLDOWN_ACTIVE",
+                        "Please wait before requesting another verification code.",
+                        new Dictionary<string, int>
+                        {
+                            ["retryAfterSeconds"] = retryAfterSeconds
+                        })),
+                RequestEmailVerificationResult.DeliveryFailed => StatusCode(
+                    StatusCodes.Status503ServiceUnavailable,
+                    CreateError(
+                        "OTP_DELIVERY_FAILED",
+                        "The verification code could not be delivered. Please try again.")),
+                _ => StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+            };
+        }
+
+        [AllowAnonymous]
         [HttpPost("Register_member")]
         public async Task<IActionResult> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info)
         {
@@ -144,7 +234,19 @@ namespace SportsCenterManagement.Controllers
             {
                 if (await _account.IsEmailExistsAsync(info.Email))
                 {
-                    return Conflict("Email already exists");
+                    return Conflict(CreateError(
+                        "EMAIL_ALREADY_EXISTS",
+                        "Email already exists."));
+                }
+
+                VerifyEmailCodeResult verification = _emailVerification.VerifyCode(
+                    info.Email,
+                    "REGISTER",
+                    info.EmailVerificationCode,
+                    consumeOnSuccess: false);
+                if (verification != VerifyEmailCodeResult.Success)
+                {
+                    return CreateEmailVerificationError(verification);
                 }
 
                 RegisterMemberResponseAPIViewModel? result = await _account.RegisterMemberAsync(info);
@@ -167,6 +269,51 @@ namespace SportsCenterManagement.Controllers
                         .Select(e => e.ErrorMessage));
                 return BadRequest(allErrors);
             }
+        }
+
+        private IActionResult CreateEmailVerificationError(VerifyEmailCodeResult result)
+        {
+            return result switch
+            {
+                VerifyEmailCodeResult.CodeRequired => BadRequest(CreateError(
+                    "EMAIL_VERIFICATION_REQUIRED",
+                    "An email verification code is required.")),
+                VerifyEmailCodeResult.CodeNotFound => BadRequest(CreateError(
+                    "EMAIL_VERIFICATION_NOT_FOUND",
+                    "Request a new email verification code before continuing.")),
+                VerifyEmailCodeResult.CodeExpired => BadRequest(CreateError(
+                    "EMAIL_VERIFICATION_EXPIRED",
+                    "The email verification code has expired.")),
+                VerifyEmailCodeResult.InvalidCode => BadRequest(CreateError(
+                    "INVALID_EMAIL_VERIFICATION_CODE",
+                    "The email verification code is incorrect.")),
+                VerifyEmailCodeResult.AttemptsExceeded => StatusCode(
+                    StatusCodes.Status429TooManyRequests,
+                    CreateError(
+                        "EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED",
+                        "The email verification code is no longer valid.")),
+                _ => StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+            };
+        }
+
+        private ApiErrorResponseAPIViewModel CreateError(
+            string code,
+            string message,
+            object? details = null)
+        {
+            return new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = code,
+                    Message = message,
+                    Details = details
+                },
+                TraceId = HttpContext.TraceIdentifier
+            };
         }
     }
 }

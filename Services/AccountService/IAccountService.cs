@@ -1,3 +1,4 @@
+using APIViewModel.AccountProfile;
 using APIViewModel.CenterManager;
 using APIViewModel.Coach;
 using APIViewModel.Member;
@@ -7,11 +8,17 @@ namespace Services.AccountService;
 
 public interface IAccountService
 {
+    Task<AccountProfileAPIViewModel?> GetProfileAsync(string accountId);
+
+    Task<AccountProfileAPIViewModel?> UpdateProfileAsync(
+        string accountId,
+        UpdateAccountProfileAPIViewModel request);
+
     Task<bool> CreateCenterManagerAsync(CreateCenterManagerAPIViewModel info);
 
     Task<bool> CreateCoachAsync(CreateCoachAPIViewModel info);
 
-    Task<bool> CreateMemberAsync(CreateMemberAPIViewModel info);
+    Task<RegisterMemberResponseAPIViewModel?> CreateMemberAsync(CreateMemberAPIViewModel info);
 
     Task<bool> CreateReceptionistAsync(CreateReceptionistAPIViewModel info);
 

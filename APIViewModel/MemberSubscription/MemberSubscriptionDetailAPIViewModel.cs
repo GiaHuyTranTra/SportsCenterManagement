@@ -5,6 +5,8 @@ namespace APIViewModel.MemberSubscription;
 
 public class MemberSubscriptionDetailAPIViewModel
 {
+    public int InvoiceId { get; set; }
+
     public int SubscriptionId { get; set; }
 
     public string InvoiceNumber { get; set; } = null!;

@@ -61,6 +61,58 @@ public class EmailService : IEmailService
         }
     }
 
+    public async Task SendEmailVerificationOtpAsync(
+        string recipientEmail,
+        string otp,
+        string purpose,
+        int expiresInMinutes)
+    {
+        ValidateConfiguration();
+
+        string action = string.Equals(purpose, "LOGIN", StringComparison.Ordinal)
+            ? "sign-in"
+            : "registration";
+        using MailMessage message = new MailMessage
+        {
+            From = new MailAddress(_options.FromEmail, _options.FromName),
+            Subject = "Sports Center email verification code",
+            Body = "Your " + action + " verification code is " + otp +
+                ". It expires in " + expiresInMinutes + " minutes.",
+            IsBodyHtml = false
+        };
+        message.To.Add(new MailAddress(recipientEmail));
+
+        using SmtpClient client = CreateSmtpClient();
+        try
+        {
+            await client.SendMailAsync(message);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Email verification OTP delivery failed.");
+            throw;
+        }
+    }
+
+    private SmtpClient CreateSmtpClient()
+    {
+        SmtpClient client = new SmtpClient(_options.Host, _options.Port)
+        {
+            EnableSsl = _options.EnableSsl,
+            UseDefaultCredentials = false
+        };
+
+        if (!string.IsNullOrWhiteSpace(_options.Username) &&
+            !string.IsNullOrWhiteSpace(_options.Password))
+        {
+            client.Credentials = new NetworkCredential(
+                _options.Username,
+                _options.Password);
+        }
+
+        return client;
+    }
+
     private void ValidateConfiguration()
     {
         if (string.IsNullOrWhiteSpace(_options.Host) ||

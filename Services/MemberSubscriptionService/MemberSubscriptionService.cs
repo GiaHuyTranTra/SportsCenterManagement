@@ -163,6 +163,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             MemberSubscriptionDetailAPIViewModel data = new MemberSubscriptionDetailAPIViewModel
             {
+                InvoiceId = invoice.Id,
                 SubscriptionId = subscription.Id,
                 InvoiceNumber = invoice.InvoiceNumber,
                 PackageId = package.Id,

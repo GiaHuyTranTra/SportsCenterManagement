@@ -10,6 +10,10 @@ public class MembershipPackageListItemAPIViewModel
 
     public int DurationMonths { get; set; }
 
+    public List<string> Benefits { get; set; } = new List<string>();
+
+    public int SubscriberCount { get; set; }
+
     public bool IsActive { get; set; }
 
     public DateTime CreatedAt { get; set; }

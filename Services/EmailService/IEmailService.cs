@@ -6,4 +6,10 @@ public interface IEmailService
         string recipientEmail,
         string otp,
         int expiresInMinutes);
+
+    Task SendEmailVerificationOtpAsync(
+        string recipientEmail,
+        string otp,
+        string purpose,
+        int expiresInMinutes);
 }

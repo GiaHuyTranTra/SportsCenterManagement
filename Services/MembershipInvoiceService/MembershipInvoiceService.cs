@@ -270,7 +270,10 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             return (GetReceiptResult.StaffNotFound, null);
         }
 
-        if (staff.Role.Name != "Receptionist" && staff.Role.Name != "CenterManager")
+        if (staff.Role is null ||
+            (staff.Role.Name != "Receptionist" &&
+             staff.Role.Name != "CenterManager" &&
+             staff.Role.Name != "Member"))
         {
             return (GetReceiptResult.StaffRoleNotAllowed, null);
         }
@@ -293,6 +296,11 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             .FirstOrDefaultAsync(i => i.Id == invoiceId);
 
         if (invoice is null)
+        {
+            return (GetReceiptResult.InvoiceNotFound, null);
+        }
+
+        if (staff.Role.Name == "Member" && invoice.MemberId != staffAccountId)
         {
             return (GetReceiptResult.InvoiceNotFound, null);
         }
@@ -363,6 +371,208 @@ public class MembershipInvoiceService : IMembershipInvoiceService
         };
 
         return (GetReceiptResult.Success, receipt);
+    }
+
+    public async Task<List<MembershipReceiptAPIViewModel>> GetInvoicesAsync(
+        string staffAccountId,
+        string? memberId = null,
+        string? status = null,
+        string? search = null,
+        string? paymentMethod = null)
+    {
+        Account? caller = await _context.Accounts
+            .Include(a => a.Role)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == staffAccountId);
+
+        if (caller is null ||
+            caller.Role is null ||
+            (caller.Role.Name != "Receptionist" &&
+             caller.Role.Name != "CenterManager" &&
+             caller.Role.Name != "Member"))
+        {
+            return new List<MembershipReceiptAPIViewModel>();
+        }
+
+        if (!string.Equals(caller.Status, "Active", StringComparison.OrdinalIgnoreCase) || caller.IsLocked)
+        {
+            return new List<MembershipReceiptAPIViewModel>();
+        }
+
+        IQueryable<MembershipInvoice> query = _context.MembershipInvoices
+            .AsNoTracking()
+            .Include(i => i.Subscription)
+            .Include(i => i.Member)
+                .ThenInclude(m => m.Account)
+            .Include(i => i.PaidByNavigation)
+                .ThenInclude(p => p!.Receptionist)
+            .Include(i => i.PaidByNavigation)
+                .ThenInclude(p => p!.CenterManager);
+
+        if (caller.Role.Name == "Member")
+        {
+            query = query.Where(i => i.MemberId == staffAccountId);
+        }
+        else if (!string.IsNullOrWhiteSpace(memberId))
+        {
+            string trimmedMemberId = memberId.Trim();
+            query = query.Where(i => i.MemberId == trimmedMemberId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            string normalizedStatus = status.Trim().ToUpperInvariant();
+            query = query.Where(i => i.Status == normalizedStatus);
+        }
+
+        if (!string.IsNullOrWhiteSpace(paymentMethod))
+        {
+            string normalizedPaymentMethod = paymentMethod.Trim().ToUpperInvariant();
+            query = query.Where(i => i.PaymentMethod == normalizedPaymentMethod);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string trimmedSearch = search.Trim();
+            query = query.Where(i =>
+                i.InvoiceNumber.Contains(trimmedSearch) ||
+                (i.Member.FullName != null && i.Member.FullName.Contains(trimmedSearch)) ||
+                (i.Member.Account != null && i.Member.Account.Email.Contains(trimmedSearch)) ||
+                (i.Member.Account != null && i.Member.Account.Phone != null && i.Member.Account.Phone.Contains(trimmedSearch)) ||
+                i.Member.MemberCode.Contains(trimmedSearch));
+        }
+
+        List<MembershipInvoice> invoices = await query
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync();
+
+        List<MembershipReceiptAPIViewModel> results = new List<MembershipReceiptAPIViewModel>();
+        foreach (MembershipInvoice invoice in invoices)
+        {
+            if (invoice.Subscription is null || invoice.Member is null || invoice.Member.Account is null)
+            {
+                continue;
+            }
+
+            string? paidByStaffName =
+                invoice.PaidByNavigation?.Receptionist?.FullName ??
+                invoice.PaidByNavigation?.CenterManager?.FullName;
+
+            List<string> benefits;
+            try
+            {
+                benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+                    ?? new List<string>();
+            }
+            catch
+            {
+                benefits = new List<string>();
+            }
+
+            results.Add(new MembershipReceiptAPIViewModel
+            {
+                InvoiceId = invoice.Id,
+                InvoiceNumber = invoice.InvoiceNumber,
+                Amount = invoice.Amount,
+                PaymentMethod = invoice.PaymentMethod,
+                InvoiceStatus = invoice.Status,
+                CreatedAt = invoice.CreatedAt,
+                PaidAt = invoice.PaidAt,
+                PaidByStaffId = invoice.PaidBy,
+                PaidByStaffName = paidByStaffName,
+                SubscriptionId = invoice.Subscription.Id,
+                SubscriptionStatus = invoice.Subscription.Status,
+                Kind = invoice.Subscription.Kind,
+                StartDate = invoice.Subscription.StartDate,
+                EndDate = invoice.Subscription.EndDate,
+                PackageId = invoice.Subscription.PackageId,
+                PackageName = invoice.Subscription.PackageName,
+                PackagePrice = invoice.Subscription.PackagePrice,
+                DurationMonths = invoice.Subscription.DurationMonths,
+                Benefits = benefits,
+                MemberAccountId = invoice.Member.AccountId,
+                MemberCode = invoice.Member.MemberCode,
+                MemberFullName = invoice.Member.FullName,
+                MemberEmail = invoice.Member.Account.Email,
+                MemberPhone = invoice.Member.Account.Phone
+            });
+        }
+
+        return results;
+    }
+
+    public async Task<CancelInvoiceResult> CancelPendingInvoiceAsync(
+        int invoiceId,
+        string callerAccountId)
+    {
+        Account? caller = await _context.Accounts
+            .Include(a => a.Role)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == callerAccountId);
+
+        if (caller is null)
+        {
+            return CancelInvoiceResult.CallerNotFound;
+        }
+
+        if (caller.Role is null ||
+            (caller.Role.Name != "Receptionist" &&
+             caller.Role.Name != "CenterManager" &&
+             caller.Role.Name != "Member"))
+        {
+            return CancelInvoiceResult.CallerRoleNotAllowed;
+        }
+
+        if (!string.Equals(caller.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        {
+            return CancelInvoiceResult.CallerInactive;
+        }
+
+        if (caller.IsLocked)
+        {
+            return CancelInvoiceResult.CallerLocked;
+        }
+
+        MembershipInvoice? invoice = await _context.MembershipInvoices
+            .Include(i => i.Subscription)
+            .FirstOrDefaultAsync(i => i.Id == invoiceId);
+
+        if (invoice is null)
+        {
+            return CancelInvoiceResult.InvoiceNotFound;
+        }
+
+        if (caller.Role.Name == "Member" && invoice.MemberId != callerAccountId)
+        {
+            return CancelInvoiceResult.InvoiceNotFound;
+        }
+
+        if (invoice.Status != "PENDING_PAYMENT")
+        {
+            return CancelInvoiceResult.InvalidInvoiceState;
+        }
+
+        if (invoice.Subscription is null || invoice.Subscription.Status != "PENDING_PAYMENT")
+        {
+            return CancelInvoiceResult.InvalidInvoiceState;
+        }
+
+        invoice.Status = "CANCELED";
+        invoice.Subscription.Status = "CANCELED";
+
+        try
+        {
+            await _context.SaveChangesAsync();
+            return CancelInvoiceResult.Success;
+        }
+        catch (Exception ex)
+        {
+            if (IsDeadlockVictim(ex))
+            {
+                return CancelInvoiceResult.ConcurrencyConflict;
+            }
+            throw;
+        }
     }
 
     private static bool IsDeadlockVictim(Exception ex)
