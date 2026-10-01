@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using APIViewModel.Member;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Services.AuditLogService;
 using Services.MemberService;
 using SportsCenterManagement.Filter;
 
@@ -15,10 +16,14 @@ namespace SportsCenterManagement.Controllers;
 public class MemberController : ControllerBase
 {
     private readonly IMemberService _memberService;
+    private readonly IAuditLogService _auditLogService;
 
-    public MemberController(IMemberService memberService)
+    public MemberController(
+        IMemberService memberService,
+        IAuditLogService auditLogService)
     {
         _memberService = memberService;
+        _auditLogService = auditLogService;
     }
 
     [Authorize(Roles = "CenterManager,Receptionist")]
@@ -73,6 +78,13 @@ public class MemberController : ControllerBase
         switch (result)
         {
             case UpdateMemberResult.Success:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    "UPDATE",
+                    "MEMBER",
+                    accountId,
+                    $"Cập nhật hồ sơ thành viên {request.FullName ?? accountId}.");
                 return Ok("Update member successful");
             case UpdateMemberResult.NotFound:
                 return NotFound("Member not found");
@@ -103,6 +115,13 @@ public class MemberController : ControllerBase
         switch (result)
         {
             case UpdateMemberStatusResult.Success:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    request.Status.Equals("Active", System.StringComparison.OrdinalIgnoreCase) ? "ACTIVATE" : "DEACTIVATE",
+                    "MEMBER",
+                    accountId,
+                    $"Cập nhật trạng thái thành viên sang {request.Status}.");
                 return Ok("Update member status successful");
             case UpdateMemberStatusResult.NotFound:
                 return NotFound("Member not found");

@@ -121,6 +121,15 @@ public class EmailVerificationServiceTests
                 ? Task.FromException(new InvalidOperationException("SMTP unavailable"))
                 : Task.CompletedTask;
         }
+
+        public Task SendNewAccountPasswordAsync(
+            string recipientEmail,
+            string fullName,
+            string role,
+            string rawPassword)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeHostEnvironment : IHostEnvironment

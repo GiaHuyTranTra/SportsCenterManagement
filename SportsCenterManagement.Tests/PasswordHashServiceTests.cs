@@ -11,7 +11,7 @@ public class PasswordHashServiceTests
     {
         const string password = "SecurePassword123!";
 
-        var passwordHash = _service.HashPassword(password);
+        string passwordHash = _service.HashPassword(password);
 
         Assert.NotEqual(password, passwordHash);
         Assert.StartsWith("$2", passwordHash);
@@ -21,7 +21,7 @@ public class PasswordHashServiceTests
     [Fact]
     public void VerifyPassword_WithWrongPassword_ReturnsFalse()
     {
-        var passwordHash = _service.HashPassword("correct-password");
+        string passwordHash = _service.HashPassword("correct-password");
 
         Assert.False(_service.VerifyPassword("wrong-password", passwordHash));
     }

@@ -5,6 +5,7 @@ using APIViewModel.Member;
 using APIViewModel.Receptionist;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
+using Services.EmailService;
 using Services.PasswordHashService;
 
 namespace Services.AccountService;
@@ -13,13 +14,16 @@ public class AccountService : IAccountService
 {
     private readonly SportsCenterManagementContext _context;
     private readonly IPasswordHashService _passwordHashService;
+    private readonly IEmailService? _emailService;
 
     public AccountService(
         SportsCenterManagementContext context,
-        IPasswordHashService passwordHashService)
+        IPasswordHashService passwordHashService,
+        IEmailService? emailService = null)
     {
         _context = context;
         _passwordHashService = passwordHashService;
+        _emailService = emailService;
     }
 
     public async Task<AccountProfileAPIViewModel?> GetProfileAsync(string accountId)
@@ -66,15 +70,18 @@ public class AccountService : IAccountService
                 break;
             case "Coach" when account.Coach is not null:
                 account.Coach.FullName = fullName;
+                account.Coach.DateOfBirth = request.DateOfBirth;
                 account.Coach.Specialization = NormalizeOptional(request.Specialization);
                 account.Coach.WorkSchedule = NormalizeOptional(request.WorkSchedule);
                 break;
             case "Receptionist" when account.Receptionist is not null:
                 account.Receptionist.FullName = fullName;
+                account.Receptionist.DateOfBirth = request.DateOfBirth;
                 account.Receptionist.WorkShift = NormalizeOptional(request.WorkSchedule);
                 break;
             case "CenterManager" when account.CenterManager is not null:
                 account.CenterManager.FullName = fullName;
+                account.CenterManager.DateOfBirth = request.DateOfBirth;
                 break;
             default:
                 return null;
@@ -101,6 +108,10 @@ public class AccountService : IAccountService
             account.Receptionist?.FullName ??
             account.CenterManager?.FullName ??
             account.Email.Split('@')[0];
+        DateOnly? dateOfBirth = account.Member?.DateOfBirth ??
+            account.Coach?.DateOfBirth ??
+            account.Receptionist?.DateOfBirth ??
+            account.CenterManager?.DateOfBirth;
         return new AccountProfileAPIViewModel
         {
             AccountId = account.Id,
@@ -108,7 +119,7 @@ public class AccountService : IAccountService
             Role = account.Role.Name,
             FullName = fullName,
             Phone = account.Phone,
-            DateOfBirth = account.Member?.DateOfBirth,
+            DateOfBirth = dateOfBirth,
             AvatarUrl = account.Member?.AvatarUrl,
             Specialization = account.Coach?.Specialization,
             WorkSchedule = account.Coach?.WorkSchedule ?? account.Receptionist?.WorkShift,
@@ -122,14 +133,13 @@ public class AccountService : IAccountService
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private async Task<bool> IsDuplicate(string email, string phone)
+    private async Task<bool> IsDuplicate(string email, string? phone)
     {
-        Account account = await _context.Accounts.Where(q => q.Email.ToLower().Equals(email.ToLower()) || q.Phone.Equals(phone)).FirstOrDefaultAsync();
-
-        if (account == null)
-            return false;
-        else
-            return true;
+        string normalizedEmail = email.Trim().ToLowerInvariant();
+        string? normalizedPhone = string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
+        return await _context.Accounts.AnyAsync(q =>
+            q.Email.ToLower() == normalizedEmail ||
+            (normalizedPhone != null && q.Phone == normalizedPhone));
     }
 
     public async Task<bool> CreateCenterManagerAsync(CreateCenterManagerAPIViewModel info)
@@ -172,6 +182,16 @@ public class AccountService : IAccountService
 
             await _context.CenterManagers.AddAsync(newCenterManager);
             await _context.SaveChangesAsync();
+
+            if (_emailService is not null)
+            {
+                await _emailService.SendNewAccountPasswordAsync(
+                    newAccount.Email,
+                    info.FullName,
+                    "Quản lý Trung tâm",
+                    info.Password);
+            }
+
             return true;
         }
         catch (Exception)
@@ -189,7 +209,7 @@ public class AccountService : IAccountService
                 return false;
             }
 
-            Role role = await _context.Roles
+            Role? role = await _context.Roles
                 .Where(q => q.Name == "Coach")
                 .FirstOrDefaultAsync();
 
@@ -222,6 +242,16 @@ public class AccountService : IAccountService
 
             await _context.Coaches.AddAsync(newCoach);
             await _context.SaveChangesAsync();
+
+            if (_emailService is not null)
+            {
+                await _emailService.SendNewAccountPasswordAsync(
+                    newAccount.Email,
+                    info.FullName,
+                    "Huấn luyện viên",
+                    info.Password);
+            }
+
             return true;
         }
         catch (Exception)
@@ -283,6 +313,16 @@ public class AccountService : IAccountService
 
             await _context.Members.AddAsync(newMember);
             await _context.SaveChangesAsync();
+
+            if (_emailService is not null)
+            {
+                await _emailService.SendNewAccountPasswordAsync(
+                    newAccount.Email,
+                    info.FullName,
+                    "Hội viên",
+                    info.Password);
+            }
+
             return new RegisterMemberResponseAPIViewModel
             {
                 AccountId = newAccount.Id,
@@ -305,7 +345,7 @@ public class AccountService : IAccountService
                 return false;
             }
 
-            Role role = await _context.Roles
+            Role? role = await _context.Roles
                 .Where(q => q.Name == "Receptionist")
                 .FirstOrDefaultAsync();
 
@@ -337,6 +377,16 @@ public class AccountService : IAccountService
 
             await _context.Receptionists.AddAsync(newReceptionist);
             await _context.SaveChangesAsync();
+
+            if (_emailService is not null)
+            {
+                await _emailService.SendNewAccountPasswordAsync(
+                    newAccount.Email,
+                    info.FullName,
+                    "Nhân viên Lễ tân",
+                    info.Password);
+            }
+
             return true;
         }
         catch (Exception)
@@ -394,6 +444,15 @@ public class AccountService : IAccountService
 
             await _context.Members.AddAsync(newMember);
             await _context.SaveChangesAsync();
+
+            if (_emailService is not null)
+            {
+                await _emailService.SendNewAccountPasswordAsync(
+                    newAccount.Email,
+                    "Hội viên",
+                    "Hội viên",
+                    info.Password);
+            }
 
             return new RegisterMemberResponseAPIViewModel
             {

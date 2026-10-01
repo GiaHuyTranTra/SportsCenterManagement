@@ -5,6 +5,7 @@ using APIViewModel.MembershipInvoice;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Services.AuditLogService;
 using Services.MembershipInvoiceService;
 using SportsCenterManagement.Filter;
 
@@ -17,10 +18,14 @@ namespace SportsCenterManagement.Controllers;
 public class MembershipInvoiceController : ControllerBase
 {
     private readonly IMembershipInvoiceService _invoiceService;
+    private readonly IAuditLogService _auditLogService;
 
-    public MembershipInvoiceController(IMembershipInvoiceService invoiceService)
+    public MembershipInvoiceController(
+        IMembershipInvoiceService invoiceService,
+        IAuditLogService auditLogService)
     {
         _invoiceService = invoiceService;
+        _auditLogService = auditLogService;
     }
 
     [HttpGet]
@@ -65,6 +70,12 @@ public class MembershipInvoiceController : ControllerBase
         switch (result)
         {
             case PayInvoiceResult.Success when receipt is not null:
+                await _auditLogService.RecordAsync(
+                    staffAccountId,
+                    "CONFIRM_PAYMENT",
+                    "INVOICE",
+                    invoiceId.ToString(),
+                    $"Xác nhận thanh toán hóa đơn #{receipt.InvoiceNumber} ({receipt.Amount:N0} VND) cho hội viên {receipt.MemberFullName ?? receipt.MemberCode}.");
                 return Ok(receipt);
             case PayInvoiceResult.InvalidPaymentMethod:
                 return BadRequest("Invalid payment method. Allowed methods: CASH, BANK_TRANSFER, CARD.");
@@ -152,6 +163,12 @@ public class MembershipInvoiceController : ControllerBase
         switch (result)
         {
             case CancelInvoiceResult.Success:
+                await _auditLogService.RecordAsync(
+                    callerAccountId,
+                    "CANCEL",
+                    "INVOICE",
+                    invoiceId.ToString(),
+                    $"Hủy yêu cầu đăng ký hóa đơn #{invoiceId}.");
                 return Ok(new { message = "Membership invoice and pending order have been canceled." });
             case CancelInvoiceResult.InvoiceNotFound:
                 return NotFound("Membership invoice not found.");

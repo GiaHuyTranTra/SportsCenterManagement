@@ -8,6 +8,7 @@ using APIViewModel.Receptionist;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.AccountService;
+using Services.AuditLogService;
 using Services.EmailVerificationService;
 using SportsCenterManagement.Filter;
 using System.Security.Claims;
@@ -20,13 +21,16 @@ namespace SportsCenterManagement.Controllers
     {
         private readonly IAccountService _account;
         private readonly IEmailVerificationService _emailVerification;
+        private readonly IAuditLogService _auditLogService;
 
         public AccountController(
             IAccountService account,
-            IEmailVerificationService emailVerification)
+            IEmailVerificationService emailVerification,
+            IAuditLogService auditLogService)
         {
             _account = account;
             _emailVerification = emailVerification;
+            _auditLogService = auditLogService;
         }
 
         [Authorize]
@@ -59,9 +63,19 @@ namespace SportsCenterManagement.Controllers
 
             AccountProfileAPIViewModel? profile =
                 await _account.UpdateProfileAsync(accountId, request);
-            return profile is null
-                ? Conflict("Account profile could not be updated.")
-                : Ok(profile);
+
+            if (profile is not null)
+            {
+                await _auditLogService.RecordAsync(
+                    accountId,
+                    "UPDATE_PROFILE",
+                    "USER",
+                    accountId,
+                    $"Cập nhật hồ sơ tài khoản {profile.FullName}.");
+                return Ok(profile);
+            }
+
+            return Conflict("Account profile could not be updated.");
         }
 
         [Authorize(Roles = "CenterManager")]
@@ -75,6 +89,13 @@ namespace SportsCenterManagement.Controllers
 
                 if (isCreated)
                 {
+                    string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    await _auditLogService.RecordAsync(
+                        currentUserId,
+                        "CREATE",
+                        "USER",
+                        null,
+                        $"Tạo mới tài khoản quản lý trung tâm {info.FullName}.");
                     return Ok("Create center manager successful");
                 }
                 else
@@ -104,6 +125,13 @@ namespace SportsCenterManagement.Controllers
 
                 if (isCreated)
                 {
+                    string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    await _auditLogService.RecordAsync(
+                        currentUserId,
+                        "CREATE",
+                        "COACH",
+                        null,
+                        $"Tạo mới tài khoản huấn luyện viên {info.FullName}.");
                     return Ok("Create coach successful");
                 }
                 else
@@ -134,6 +162,13 @@ namespace SportsCenterManagement.Controllers
 
                 if (createdMember is not null)
                 {
+                    string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    await _auditLogService.RecordAsync(
+                        currentUserId,
+                        "CREATE",
+                        "MEMBER",
+                        createdMember.AccountId,
+                        $"Tạo mới tài khoản thành viên {info.FullName}.");
                     return Ok(createdMember);
                 }
                 else
@@ -163,6 +198,13 @@ namespace SportsCenterManagement.Controllers
 
                 if (isCreated)
                 {
+                    string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    await _auditLogService.RecordAsync(
+                        currentUserId,
+                        "CREATE",
+                        "RECEPTIONIST",
+                        null,
+                        $"Tạo mới tài khoản nhân viên lễ tân {info.FullName}.");
                     return Ok("Create receptionist successful");
                 }
                 else
@@ -228,6 +270,7 @@ namespace SportsCenterManagement.Controllers
 
         [AllowAnonymous]
         [HttpPost("Register_member")]
+        [HttpPost("register")]
         public async Task<IActionResult> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info)
         {
             if (ModelState.IsValid)

@@ -1,8 +1,10 @@
 using APIViewModel.MembershipPackage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Services.AuditLogService;
 using Services.MembershipPackageService;
 using SportsCenterManagement.Filter;
+using System.Security.Claims;
 
 namespace SportsCenterManagement.Controllers;
 
@@ -13,10 +15,14 @@ namespace SportsCenterManagement.Controllers;
 public class MembershipPackageController : ControllerBase
 {
     private readonly IMembershipPackageService _membershipPackageService;
+    private readonly IAuditLogService _auditLogService;
 
-    public MembershipPackageController(IMembershipPackageService membershipPackageService)
+    public MembershipPackageController(
+        IMembershipPackageService membershipPackageService,
+        IAuditLogService auditLogService)
     {
         _membershipPackageService = membershipPackageService;
+        _auditLogService = auditLogService;
     }
 
     [AllowAnonymous]
@@ -76,6 +82,13 @@ public class MembershipPackageController : ControllerBase
         switch (result.Result)
         {
             case CreatePackageResult.Success when result.Package is not null:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    "CREATE",
+                    "MEMBERSHIP_PACKAGE",
+                    result.Package.Id.ToString(),
+                    $"Tạo mới gói tập {result.Package.Name}.");
                 return CreatedAtRoute(
                     "GetMembershipPackageById",
                     new { id = result.Package.Id },
@@ -105,6 +118,13 @@ public class MembershipPackageController : ControllerBase
         switch (result.Result)
         {
             case UpdatePackageResult.Success when result.Package is not null:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    "UPDATE",
+                    "MEMBERSHIP_PACKAGE",
+                    result.Package.Id.ToString(),
+                    $"Cập nhật thông tin gói tập {result.Package.Name}.");
                 return Ok(result.Package);
             case UpdatePackageResult.NotFound:
                 return NotFound("Membership package not found");
@@ -127,12 +147,22 @@ public class MembershipPackageController : ControllerBase
             return BadRequest(ModelState);
         }
 
+        MembershipPackageDetailAPIViewModel? pkg = await _membershipPackageService.GetPackageByIdAsync(id);
+        string pkgName = pkg?.Name ?? $"ID {id}";
+
         UpdatePackageStatusResult result = await _membershipPackageService
             .UpdatePackageStatusAsync(id, request.IsActive.Value);
 
         switch (result)
         {
             case UpdatePackageStatusResult.Success:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    request.IsActive.Value ? "ACTIVATE" : "DEACTIVATE",
+                    "MEMBERSHIP_PACKAGE",
+                    id.ToString(),
+                    $"{(request.IsActive.Value ? "Mở bán lại (Kích hoạt)" : "Ẩn khỏi danh mục (Vô hiệu hóa)")} gói tập {pkgName}.");
                 return Ok("Update membership package status successful");
             case UpdatePackageStatusResult.NotFound:
                 return NotFound("Membership package not found");
@@ -144,11 +174,21 @@ public class MembershipPackageController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> DeletePackageAsync([FromRoute] int id)
     {
+        MembershipPackageDetailAPIViewModel? pkg = await _membershipPackageService.GetPackageByIdAsync(id);
+        string pkgName = pkg?.Name ?? $"ID {id}";
+
         DeletePackageResult result = await _membershipPackageService.DeletePackageAsync(id);
 
         switch (result)
         {
             case DeletePackageResult.Success:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    "DELETE",
+                    "MEMBERSHIP_PACKAGE",
+                    id.ToString(),
+                    $"Xóa hoàn toàn gói tập {pkgName}.");
                 return NoContent();
             case DeletePackageResult.NotFound:
                 return NotFound("Membership package not found");

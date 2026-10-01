@@ -94,6 +94,40 @@ public class EmailService : IEmailService
         }
     }
 
+    public async Task SendNewAccountPasswordAsync(
+        string recipientEmail,
+        string fullName,
+        string role,
+        string rawPassword)
+    {
+        ValidateConfiguration();
+
+        using MailMessage message = new MailMessage
+        {
+            From = new MailAddress(_options.FromEmail, _options.FromName),
+            Subject = "Sports Center - Thông tin tài khoản và mật khẩu đăng nhập",
+            Body = $"Xin chào {fullName},\r\n\r\n" +
+                $"Tài khoản của bạn đã được khởi tạo thành công trên hệ thống Trung tâm Thể thao.\r\n" +
+                $"- Vai trò: {role}\r\n" +
+                $"- Email đăng nhập: {recipientEmail}\r\n" +
+                $"- Mật khẩu ban đầu: {rawPassword}\r\n\r\n" +
+                $"Vui lòng đăng nhập và tiến hành đổi mật khẩu tại trang Hồ sơ cá nhân sau khi đăng nhập lần đầu.\r\n\r\n" +
+                $"Trân trọng,\r\nBan Quản lý Trung tâm Thể thao.",
+            IsBodyHtml = false
+        };
+        message.To.Add(new MailAddress(recipientEmail));
+
+        using SmtpClient client = CreateSmtpClient();
+        try
+        {
+            await client.SendMailAsync(message);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "New account password delivery failed for {Email}", recipientEmail);
+        }
+    }
+
     private SmtpClient CreateSmtpClient()
     {
         SmtpClient client = new SmtpClient(_options.Host, _options.Port)

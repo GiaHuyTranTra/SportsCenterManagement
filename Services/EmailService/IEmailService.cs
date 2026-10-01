@@ -12,4 +12,10 @@ public interface IEmailService
         string otp,
         string purpose,
         int expiresInMinutes);
+
+    Task SendNewAccountPasswordAsync(
+        string recipientEmail,
+        string fullName,
+        string role,
+        string rawPassword);
 }

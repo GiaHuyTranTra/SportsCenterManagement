@@ -71,7 +71,7 @@ public class EmailVerificationService : IEmailVerificationService
                 rawCode,
                 normalizedPurpose,
                 ExpirationMinutes);
-            return (RequestEmailVerificationResult.Success, 0, null);
+            return (RequestEmailVerificationResult.Success, 0, _environment.IsDevelopment() ? rawCode : null);
         }
         catch (Exception)
         {

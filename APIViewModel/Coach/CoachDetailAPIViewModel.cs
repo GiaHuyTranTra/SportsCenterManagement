@@ -1,21 +1,24 @@
 using System;
-using System.Collections.Generic;
 
-namespace DataAccess.Entities;
+namespace APIViewModel.Coach;
 
-public partial class Coach
+public class CoachDetailAPIViewModel
 {
     public string AccountId { get; set; } = null!;
 
+    public string Email { get; set; } = null!;
+
     public string FullName { get; set; } = null!;
+
+    public string? Phone { get; set; }
 
     public string? Specialization { get; set; }
 
     public string? WorkSchedule { get; set; }
 
-    public DateOnly? DateOfBirth { get; set; }
+    public string Status { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; }
 
-    public virtual Account Account { get; set; } = null!;
+    public DateTime? UpdatedAt { get; set; }
 }

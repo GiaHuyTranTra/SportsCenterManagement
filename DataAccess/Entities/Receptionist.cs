@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace DataAccess.Entities;
@@ -10,6 +10,8 @@ public partial class Receptionist
     public string FullName { get; set; } = null!;
 
     public string? WorkShift { get; set; }
+
+    public DateOnly? DateOfBirth { get; set; }
 
     public DateTime CreatedAt { get; set; }
 

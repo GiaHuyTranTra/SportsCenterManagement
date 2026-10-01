@@ -5,6 +5,7 @@ using APIViewModel.MemberSubscription;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Services.AuditLogService;
 using Services.MemberSubscriptionService;
 using SportsCenterManagement.Filter;
 
@@ -16,10 +17,14 @@ namespace SportsCenterManagement.Controllers;
 public class MemberSubscriptionController : ControllerBase
 {
     private readonly IMemberSubscriptionService _subscriptionService;
+    private readonly IAuditLogService _auditLogService;
 
-    public MemberSubscriptionController(IMemberSubscriptionService subscriptionService)
+    public MemberSubscriptionController(
+        IMemberSubscriptionService subscriptionService,
+        IAuditLogService auditLogService)
     {
         _subscriptionService = subscriptionService;
+        _auditLogService = auditLogService;
     }
 
     [HttpPost("register-or-renew")]
@@ -43,6 +48,14 @@ public class MemberSubscriptionController : ControllerBase
         switch (result)
         {
             case RegisterSubscriptionResult.Success when data is not null:
+                string action = data.Kind.Equals("REGISTER", System.StringComparison.OrdinalIgnoreCase) ? "CREATE" : "UPDATE";
+                string kindLabel = data.Kind.Equals("REGISTER", System.StringComparison.OrdinalIgnoreCase) ? "Đăng ký" : "Gia hạn";
+                await _auditLogService.RecordAsync(
+                    accountId,
+                    action,
+                    "MEMBERSHIP_ORDER",
+                    data.InvoiceId.ToString(),
+                    $"{kindLabel} gói tập {data.PackageName} (#{data.InvoiceNumber}, {data.Amount:N0} VND).");
                 return StatusCode(StatusCodes.Status201Created, data);
             case RegisterSubscriptionResult.InvalidPackageId:
                 return BadRequest("Invalid membership package id.");
@@ -88,6 +101,20 @@ public class MemberSubscriptionController : ControllerBase
         switch (result)
         {
             case CounterRegisterResult.Success when receipt is not null:
+                string counterAction = receipt.Kind.Equals("REGISTER", System.StringComparison.OrdinalIgnoreCase) ? "CREATE" : "UPDATE";
+                string counterKindLabel = receipt.Kind.Equals("REGISTER", System.StringComparison.OrdinalIgnoreCase) ? "Đăng ký" : "Gia hạn";
+                await _auditLogService.RecordAsync(
+                    staffAccountId,
+                    counterAction,
+                    "MEMBERSHIP_ORDER",
+                    receipt.InvoiceId.ToString(),
+                    $"{counterKindLabel} gói tập {receipt.PackageName} tại quầy cho hội viên {receipt.MemberFullName ?? receipt.MemberCode} (#{receipt.InvoiceNumber}, {receipt.Amount:N0} VND).");
+                await _auditLogService.RecordAsync(
+                    staffAccountId,
+                    "CONFIRM_PAYMENT",
+                    "INVOICE",
+                    receipt.InvoiceId.ToString(),
+                    $"Xác nhận thanh toán tại quầy hóa đơn #{receipt.InvoiceNumber} ({receipt.Amount:N0} VND, {receipt.PaymentMethod}) cho gói {receipt.PackageName}.");
                 return StatusCode(StatusCodes.Status201Created, receipt);
             case CounterRegisterResult.InvalidPackageId:
             case CounterRegisterResult.InvalidMemberAccountId:
