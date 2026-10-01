@@ -21,6 +21,8 @@ public partial class Account
 
     public DateTime? UpdatedAt { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public string? Phone { get; set; }
 
     public int RoleId { get; set; }
