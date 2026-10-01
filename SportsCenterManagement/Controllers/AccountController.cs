@@ -6,6 +6,8 @@ using APIViewModel.Common;
 using APIViewModel.Member;
 using APIViewModel.Receptionist;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Services.AvatarStorageService;
 using Microsoft.AspNetCore.Mvc;
 using Services.AccountService;
 using Services.AuditLogService;
@@ -22,15 +24,18 @@ namespace SportsCenterManagement.Controllers
         private readonly IAccountService _account;
         private readonly IEmailVerificationService _emailVerification;
         private readonly IAuditLogService _auditLogService;
+        private readonly IAvatarStorageService _avatarStorage;
 
         public AccountController(
             IAccountService account,
             IEmailVerificationService emailVerification,
-            IAuditLogService auditLogService)
+            IAuditLogService auditLogService,
+            IAvatarStorageService avatarStorage)
         {
             _account = account;
             _emailVerification = emailVerification;
             _auditLogService = auditLogService;
+            _avatarStorage = avatarStorage;
         }
 
         [Authorize]
@@ -48,6 +53,141 @@ namespace SportsCenterManagement.Controllers
                 await _account.GetProfileAsync(accountId);
             return profile is null ? NotFound("Account profile not found.") : Ok(profile);
         }
+
+        [Authorize]
+        [TypeFilter(typeof(AuthFilter))]
+        [HttpPost("profile/avatar")]
+        [RequestSizeLimit(3 * 1024 * 1024)]
+        public async Task<IActionResult> UploadAvatarAsync(IFormFile file)
+        {
+            string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return Unauthorized();
+            }
+
+            if (file is null)
+            {
+                return BadRequest(AvatarError(
+                    "AVATAR_FILE_REQUIRED",
+                    "Please choose an image file to upload."));
+            }
+
+            AccountProfileAPIViewModel? current = await _account.GetProfileAsync(accountId);
+            if (current is null)
+            {
+                return NotFound("Account profile not found.");
+            }
+
+            await using Stream content = file.OpenReadStream();
+            (SaveAvatarResult result, string? avatarUrl) =
+                await _avatarStorage.SaveAsync(accountId, content, file.Length);
+
+            switch (result)
+            {
+                case SaveAvatarResult.EmptyFile:
+                    return BadRequest(AvatarError(
+                        "AVATAR_FILE_EMPTY",
+                        "The uploaded file is empty."));
+                case SaveAvatarResult.FileTooLarge:
+                    return StatusCode(
+                        StatusCodes.Status413PayloadTooLarge,
+                        AvatarError(
+                            "AVATAR_FILE_TOO_LARGE",
+                            $"The image must not exceed {_avatarStorage.MaxFileSizeBytes / (1024 * 1024)} MB."));
+                case SaveAvatarResult.UnsupportedFormat:
+                    return BadRequest(AvatarError(
+                        "AVATAR_FORMAT_UNSUPPORTED",
+                        "Only JPG, PNG and WEBP images are accepted."));
+            }
+
+            // Persist the new path on the profile, keeping the rest untouched.
+            AccountProfileAPIViewModel? saved = await _account.UpdateProfileAsync(
+                accountId,
+                new UpdateAccountProfileAPIViewModel
+                {
+                    FullName = current.FullName,
+                    Phone = current.Phone,
+                    DateOfBirth = current.DateOfBirth,
+                    AvatarUrl = avatarUrl,
+                    Specialization = current.Specialization,
+                    WorkSchedule = current.WorkSchedule
+                });
+
+            if (saved is null)
+            {
+                _avatarStorage.DeleteIfOwned(avatarUrl);
+                return NotFound("Account profile not found.");
+            }
+
+            await _auditLogService.RecordAsync(
+                accountId,
+                "UPDATE_AVATAR",
+                "ACCOUNT",
+                accountId,
+                "Cập nhật ảnh đại diện.");
+
+            return Ok(saved);
+        }
+
+        [Authorize]
+        [TypeFilter(typeof(AuthFilter))]
+        [HttpDelete("profile/avatar")]
+        public async Task<IActionResult> DeleteAvatarAsync()
+        {
+            string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return Unauthorized();
+            }
+
+            AccountProfileAPIViewModel? current = await _account.GetProfileAsync(accountId);
+            if (current is null)
+            {
+                return NotFound("Account profile not found.");
+            }
+
+            AccountProfileAPIViewModel? saved = await _account.UpdateProfileAsync(
+                accountId,
+                new UpdateAccountProfileAPIViewModel
+                {
+                    FullName = current.FullName,
+                    Phone = current.Phone,
+                    DateOfBirth = current.DateOfBirth,
+                    AvatarUrl = null,
+                    Specialization = current.Specialization,
+                    WorkSchedule = current.WorkSchedule
+                });
+
+            if (saved is null)
+            {
+                return NotFound("Account profile not found.");
+            }
+
+            // Only drop the file after the profile no longer points at it.
+            _avatarStorage.DeleteIfOwned(current.AvatarUrl);
+
+            await _auditLogService.RecordAsync(
+                accountId,
+                "DELETE_AVATAR",
+                "ACCOUNT",
+                accountId,
+                "Xóa ảnh đại diện.");
+
+            return Ok(saved);
+        }
+
+        private static ApiErrorResponseAPIViewModel AvatarError(string code, string message) =>
+            new ApiErrorResponseAPIViewModel
+            {
+                Success = false,
+                Error = new ApiErrorAPIViewModel
+                {
+                    Code = code,
+                    Message = message,
+                    Details = null
+                }
+            };
 
         [Authorize]
         [TypeFilter(typeof(AuthFilter))]

@@ -1,4 +1,5 @@
 using APIViewModel.Common;
+using System.IO;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
 using DataAccess.Entities;
@@ -12,6 +13,7 @@ using NSwag.Generation.Processors.Security;
 using Services.AccountService;
 using Services.AccessTokenService;
 using Services.AuthService;
+using Services.AvatarStorageService;
 using Services.EmailService;
 using Services.EmailVerificationService;
 using Services.AuditLogService;
@@ -37,6 +39,13 @@ public class Program
     public static void Main(string[] args)
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+        // wwwroot holds uploaded avatars. It must exist before the host resolves
+        // WebRootPath: on a fresh clone the folder is absent (it is git-ignored),
+        // WebRootFileProvider would then be a null provider and every uploaded
+        // avatar would 404 even though the file is written correctly.
+        Directory.CreateDirectory(
+            Path.Combine(builder.Environment.ContentRootPath, "wwwroot"));
 
         builder.Services.AddControllers()
             .ConfigureApiBehaviorOptions(options =>
@@ -219,6 +228,7 @@ public class Program
             containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
+            containerBuilder.RegisterType<AvatarStorageService>().As<IAvatarStorageService>();
             containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 
@@ -238,6 +248,9 @@ public class Program
 
         app.UseHttpsRedirection();
         app.UseCors();
+
+        // Serves uploaded avatars from wwwroot/uploads/avatars.
+        app.UseStaticFiles();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();

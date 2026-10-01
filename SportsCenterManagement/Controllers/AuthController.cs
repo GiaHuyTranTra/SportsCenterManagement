@@ -217,7 +217,10 @@ public class AuthController : ControllerBase
             ChangePasswordWithOtpResult.AccountLocked => StatusCode(
                 StatusCodes.Status423Locked,
                 CreateError("ACCOUNT_LOCKED", "This account is locked.")),
-            ChangePasswordWithOtpResult.IncorrectCurrentPassword => Unauthorized(CreateError(
+            // 400, not 401: the caller's token is valid, only the submitted
+            // current password is wrong. Returning 401 makes clients treat it
+            // as an expired session and sign the user out mid-flow.
+            ChangePasswordWithOtpResult.IncorrectCurrentPassword => BadRequest(CreateError(
                 "INCORRECT_CURRENT_PASSWORD",
                 "The current password is incorrect.")),
             ChangePasswordWithOtpResult.OtpNotFound => BadRequest(CreateError(

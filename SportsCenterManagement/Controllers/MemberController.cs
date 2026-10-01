@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using APIViewModel.Common;
 using APIViewModel.Member;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -127,6 +128,42 @@ public class MemberController : ControllerBase
                 return NotFound("Member not found");
             case UpdateMemberStatusResult.InvalidStatus:
                 return BadRequest("Invalid status. Allowed values: Active, Inactive.");
+            default:
+                return StatusCode(500);
+        }
+    }
+
+    [Authorize(Roles = "CenterManager")]
+    [HttpDelete("{accountId}")]
+    public async Task<IActionResult> DeleteMemberAsync([FromRoute] string accountId)
+    {
+        DeleteMemberResult result = await _memberService.DeleteMemberAsync(accountId);
+
+        switch (result)
+        {
+            case DeleteMemberResult.Success:
+                string? currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                await _auditLogService.RecordAsync(
+                    currentUserId,
+                    "DELETE",
+                    "MEMBER",
+                    accountId,
+                    "Xóa vĩnh viễn thành viên chưa phát sinh gói tập.");
+                return NoContent();
+            case DeleteMemberResult.NotFound:
+                return NotFound("Member not found");
+            case DeleteMemberResult.HasMembershipHistory:
+                return Conflict(new ApiErrorResponseAPIViewModel
+                {
+                    Success = false,
+                    Error = new ApiErrorAPIViewModel
+                    {
+                        Code = "MEMBER_HAS_MEMBERSHIP_HISTORY",
+                        Message = "This member has membership or invoice records and cannot be deleted. Deactivate the account instead.",
+                        Details = null
+                    },
+                    TraceId = HttpContext.TraceIdentifier
+                });
             default:
                 return StatusCode(500);
         }

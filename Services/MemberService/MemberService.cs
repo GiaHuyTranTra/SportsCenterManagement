@@ -308,6 +308,48 @@ public class MemberService : IMemberService
         return UpdateMemberStatusResult.Success;
     }
 
+    public async Task<DeleteMemberResult> DeleteMemberAsync(string accountId)
+    {
+        Account? account = await _context.Accounts
+            .Include(a => a.Role)
+            .Include(a => a.Member)
+            .FirstOrDefaultAsync(a =>
+                a.Id == accountId && a.Role.Name == "Member" && a.Member != null);
+
+        if (account is null)
+        {
+            return DeleteMemberResult.NotFound;
+        }
+
+        // MemberSubscription and MembershipInvoice both reference Member with no
+        // cascade, so a member who ever bought a package must be kept. Check it
+        // here to return a clear conflict instead of a raw FK violation.
+        bool hasHistory =
+            await _context.MemberSubscriptions.AnyAsync(s => s.MemberId == accountId)
+            || await _context.MembershipInvoices.AnyAsync(i => i.MemberId == accountId);
+
+        if (hasHistory)
+        {
+            return DeleteMemberResult.HasMembershipHistory;
+        }
+
+        // The scaffolded model maps Member -> Account as ClientSetNull, so removing
+        // only the account makes EF try to null Member.AccountId, which is part of
+        // the primary key. Delete the dependent row explicitly; EF then orders the
+        // two deletes correctly. PasswordChangeOtp is untracked here and is removed
+        // by the database cascade, while audit rows keep their history with a null
+        // account reference.
+        if (account.Member is not null)
+        {
+            _context.Members.Remove(account.Member);
+        }
+
+        _context.Accounts.Remove(account);
+        await _context.SaveChangesAsync();
+
+        return DeleteMemberResult.Success;
+    }
+
     public async Task<List<MemberSearchAPIViewModel>> QuickSearchMembersAsync(string keyword)
     {
         if (string.IsNullOrWhiteSpace(keyword))

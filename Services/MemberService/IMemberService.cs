@@ -20,6 +20,15 @@ public enum UpdateMemberStatusResult
     InvalidStatus
 }
 
+public enum DeleteMemberResult
+{
+    Success,
+    NotFound,
+    /// The member has subscriptions or invoices, so the row cannot be removed
+    /// without destroying financial history. Callers must deactivate instead.
+    HasMembershipHistory
+}
+
 public interface IMemberService
 {
     Task<PagedMemberResultAPIViewModel> GetMembersAsync(
@@ -37,6 +46,8 @@ public interface IMemberService
     Task<UpdateMemberStatusResult> UpdateMemberStatusAsync(
         string accountId,
         string status);
+
+    Task<DeleteMemberResult> DeleteMemberAsync(string accountId);
 
     Task<List<MemberSearchAPIViewModel>> QuickSearchMembersAsync(string keyword);
 }

@@ -109,6 +109,9 @@ public partial class SportsCenterManagementContext : DbContext
             entity.Property(e => e.AccountId)
                 .HasMaxLength(400)
                 .IsUnicode(false);
+            entity.Property(e => e.AvatarUrl)
+                .HasMaxLength(500)
+                .IsUnicode(false);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
             entity.Property(e => e.FullName).HasMaxLength(100);
 
@@ -126,6 +129,9 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.Property(e => e.AccountId)
                 .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.AvatarUrl)
+                .HasMaxLength(500)
                 .IsUnicode(false);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
             entity.Property(e => e.FullName).HasMaxLength(100);
@@ -172,6 +178,9 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.Property(e => e.AccountId)
                 .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.AvatarUrl)
+                .HasMaxLength(500)
                 .IsUnicode(false);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
             entity.Property(e => e.FullName).HasMaxLength(100);

@@ -71,17 +71,20 @@ public class AccountService : IAccountService
             case "Coach" when account.Coach is not null:
                 account.Coach.FullName = fullName;
                 account.Coach.DateOfBirth = request.DateOfBirth;
+                account.Coach.AvatarUrl = NormalizeOptional(request.AvatarUrl);
                 account.Coach.Specialization = NormalizeOptional(request.Specialization);
                 account.Coach.WorkSchedule = NormalizeOptional(request.WorkSchedule);
                 break;
             case "Receptionist" when account.Receptionist is not null:
                 account.Receptionist.FullName = fullName;
                 account.Receptionist.DateOfBirth = request.DateOfBirth;
+                account.Receptionist.AvatarUrl = NormalizeOptional(request.AvatarUrl);
                 account.Receptionist.WorkShift = NormalizeOptional(request.WorkSchedule);
                 break;
             case "CenterManager" when account.CenterManager is not null:
                 account.CenterManager.FullName = fullName;
                 account.CenterManager.DateOfBirth = request.DateOfBirth;
+                account.CenterManager.AvatarUrl = NormalizeOptional(request.AvatarUrl);
                 break;
             default:
                 return null;
@@ -120,7 +123,10 @@ public class AccountService : IAccountService
             FullName = fullName,
             Phone = account.Phone,
             DateOfBirth = dateOfBirth,
-            AvatarUrl = account.Member?.AvatarUrl,
+            AvatarUrl = account.Member?.AvatarUrl
+                ?? account.Coach?.AvatarUrl
+                ?? account.Receptionist?.AvatarUrl
+                ?? account.CenterManager?.AvatarUrl,
             Specialization = account.Coach?.Specialization,
             WorkSchedule = account.Coach?.WorkSchedule ?? account.Receptionist?.WorkShift,
             MemberCode = account.Member?.MemberCode,
