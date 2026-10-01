@@ -20,6 +20,22 @@ public enum UpdateMemberStatusResult
     InvalidStatus
 }
 
+public enum CreateManagedMemberResult
+{
+    Success,
+    DuplicateEmail,
+    DuplicatePhone,
+    InvalidData,
+    MemberRoleMissing
+}
+
+public enum DeleteMemberResult
+{
+    Success,
+    NotFound,
+    AlreadyDeleted
+}
+
 public interface IMemberService
 {
     Task<PagedMemberResultAPIViewModel> GetMembersAsync(
@@ -30,6 +46,11 @@ public interface IMemberService
 
     Task<MemberDetailAPIViewModel?> GetMemberByIdAsync(string accountId);
 
+    Task<(CreateManagedMemberResult Result, CreateManagedMemberResponseAPIViewModel? Data)>
+        CreateManagedMemberAsync(CreateManagedMemberAPIViewModel request);
+
+    Task<DeleteMemberResult> SoftDeleteMemberAsync(string accountId);
+
     Task<UpdateMemberResult> UpdateMemberAsync(
         string accountId,
         UpdateMemberAPIViewModel request);
@@ -39,4 +60,8 @@ public interface IMemberService
         string status);
 
     Task<List<MemberSearchAPIViewModel>> QuickSearchMembersAsync(string keyword);
+
+    Task<List<MembershipStatusAPIViewModel>> GetMembershipStatusesAsync(
+        string? search,
+        string? filter);
 }

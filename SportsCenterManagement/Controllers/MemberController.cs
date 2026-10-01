@@ -95,6 +95,34 @@ public class MemberController : ControllerBase
         return Ok(result);
     }
 
+    [Authorize(Roles = "CenterManager")]
+    [HttpPost]
+    public async Task<IActionResult> CreateManagedMemberAsync(
+        [FromBody] CreateManagedMemberAPIViewModel request)
+    {
+        (CreateManagedMemberResult Result, CreateManagedMemberResponseAPIViewModel? Data) result =
+            await _memberService.CreateManagedMemberAsync(request);
+
+        switch (result.Result)
+        {
+            case CreateManagedMemberResult.Success when result.Data is not null:
+                return CreatedAtAction(
+                    nameof(GetMemberByIdAsync),
+                    new { accountId = result.Data.Member.AccountId },
+                    result.Data);
+            case CreateManagedMemberResult.DuplicateEmail:
+                return Conflict("Email already exists");
+            case CreateManagedMemberResult.DuplicatePhone:
+                return Conflict("Phone number already exists");
+            case CreateManagedMemberResult.InvalidData:
+                return BadRequest("Invalid member data");
+            case CreateManagedMemberResult.MemberRoleMissing:
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            default:
+                return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+    }
+
     [Authorize(Roles = "CenterManager,Receptionist")]
     [HttpGet("{accountId}")]
     public async Task<IActionResult> GetMemberByIdAsync([FromRoute] string accountId)
@@ -107,6 +135,51 @@ public class MemberController : ControllerBase
         }
 
         return Ok(result);
+    }
+
+    [Authorize(Roles = "Receptionist,CenterManager")]
+    [HttpGet("membership-status")]
+    public async Task<IActionResult> GetMembershipStatusesAsync(
+        [FromQuery] string? search = null,
+        [FromQuery] string? filter = "ALL")
+    {
+        string normalizedFilter = string.IsNullOrWhiteSpace(filter)
+            ? "ALL"
+            : filter.Trim().ToUpperInvariant();
+        if (normalizedFilter != "ALL" &&
+            normalizedFilter != "ACTIVE" &&
+            normalizedFilter != "EXPIRING" &&
+            normalizedFilter != "EXPIRED" &&
+            normalizedFilter != "SUSPENDED" &&
+            normalizedFilter != "UPCOMING" &&
+            normalizedFilter != "PENDING_PAYMENT" &&
+            normalizedFilter != "NONE")
+        {
+            return BadRequest("Invalid membership status filter.");
+        }
+
+        List<MembershipStatusAPIViewModel> rows =
+            await _memberService.GetMembershipStatusesAsync(search, normalizedFilter);
+        return Ok(rows);
+    }
+
+    [Authorize(Roles = "CenterManager")]
+    [HttpDelete("{accountId}")]
+    public async Task<IActionResult> SoftDeleteMemberAsync([FromRoute] string accountId)
+    {
+        DeleteMemberResult result = await _memberService.SoftDeleteMemberAsync(accountId);
+
+        switch (result)
+        {
+            case DeleteMemberResult.Success:
+                return NoContent();
+            case DeleteMemberResult.NotFound:
+                return NotFound("Member not found");
+            case DeleteMemberResult.AlreadyDeleted:
+                return BadRequest("Member is already deleted");
+            default:
+                return StatusCode(StatusCodes.Status500InternalServerError);
+        }
     }
 
     [Authorize(Roles = "CenterManager")]
