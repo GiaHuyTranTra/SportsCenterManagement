@@ -1,6 +1,6 @@
 # Bàn giao API Backend và kế hoạch còn lại
 
-Ngày đối chiếu: 30/09/2026. Tài liệu dành cho nhóm BE và FE.
+Ngày đối chiếu: 01/10/2026. Tài liệu dành cho nhóm BE và FE.
 
 - **Đã triển khai và nối FE:** UC5, UC6, UC10, UC13, UC14 của Long.
 - **Có thể dùng trong tương lai (mục 9):** API cho các chức năng mở rộng đã nêu trong mô tả dự án; chưa bắt buộc triển khai trong phạm vi 5 use case trên.
@@ -33,6 +33,44 @@ Role BE là `CenterManager`, `Coach`, `Member`, `Receptionist`; FE ánh xạ san
 ### UC10 - Danh mục gói công khai
 
 `GET /api/MembershipPackage/active` cho phép anonymous và trả mảng `{ id: number, name, price, durationMonths, benefits[] }`; chỉ có gói `IsActive=true`.
+
+### UC7 - Quản lý huấn luyện viên và bộ môn
+
+Tất cả endpoint dưới đây chỉ dành cho `CenterManager`.
+
+| Endpoint | Request/query | Response thành công |
+| --- | --- | --- |
+| `GET /api/Coach` | `page`, `pageSize`, `search?`, `status?`, `disciplineId?` | Danh sách Coach phân trang, gồm bộ môn active và inactive |
+| `GET /api/Coach/{accountId}` | Route ID | Chi tiết Coach và danh sách bộ môn |
+| `POST /api/Coach` | `email`, `password`, `fullName`, `phone`, `workSchedule?`, `disciplineIds[]` | `201 Created`, chi tiết Coach |
+| `PATCH /api/Coach/{accountId}` | Các field cập nhật từng phần và `disciplineIds?` | Chi tiết Coach sau cập nhật |
+| `PATCH /api/Coach/{accountId}/status` | `{ "status": "Active" }` hoặc `Inactive` | `200 OK` |
+| `DELETE /api/Coach/{accountId}` | Route ID | `204 No Content`, soft delete Account |
+| `GET /api/Discipline` | `activeOnly=true` | Danh mục bộ môn |
+| `POST /api/Discipline` | `name`, `description?` | `201 Created` |
+| `PATCH /api/Discipline/{id}` | `name?`, `description?` | Bộ môn sau cập nhật |
+| `PATCH /api/Discipline/{id}/status` | `{ "isActive": false }` | `200 OK` |
+
+`CoachDiscipline` là nguồn dữ liệu chuyên môn chính. Quan hệ inactive đã có được giữ lại để bảo toàn lịch sử; không cho gán mới bộ môn inactive. `Coach.Specialization` chỉ là dữ liệu legacy được đồng bộ trong giai đoạn chuyển tiếp.
+
+### UC8 - Quản lý lễ tân
+
+Tất cả endpoint dưới đây chỉ dành cho `CenterManager`.
+
+| Endpoint | Request/query | Response thành công |
+| --- | --- | --- |
+| `GET /api/Receptionist` | `page`, `pageSize`, `search?`, `status?`, `workShift?` | Danh sách Receptionist phân trang |
+| `GET /api/Receptionist/{accountId}` | Route ID | Chi tiết Receptionist |
+| `POST /api/Receptionist` | `email`, `password`, `fullName`, `phone`, `workShift?` | `201 Created`, chi tiết Receptionist |
+| `PATCH /api/Receptionist/{accountId}` | `fullName?`, `phone?`, `workShift?` | Chi tiết Receptionist sau cập nhật |
+| `PATCH /api/Receptionist/{accountId}/status` | `{ "status": "Active" }` hoặc `Inactive` | `200 OK` |
+| `DELETE /api/Receptionist/{accountId}` | Route ID | `204 No Content`, soft delete Account |
+
+Email không được thay đổi qua API cập nhật. Tạo, cập nhật, đổi trạng thái và soft delete đều ghi `AuditLog`. Endpoint legacy `POST /api/Account/Create_receptionist` dùng chung service với endpoint mới để giữ một bộ quy tắc nghiệp vụ.
+
+### UC16 - Xem audit log
+
+`GET /api/AuditLog?page=1&pageSize=20&from=&to=&accountId=&action=&entityType=` chỉ dành cho `CenterManager`. Log được sắp xếp mới nhất trước và không có API sửa/xóa.
 
 ### UC13 - Đăng ký thành viên tại quầy
 

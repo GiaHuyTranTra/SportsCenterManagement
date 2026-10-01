@@ -15,5 +15,8 @@ public partial class Coach
 
     public DateTime CreatedAt { get; set; }
 
+    public virtual ICollection<CoachDiscipline> CoachDisciplines { get; set; }
+        = new List<CoachDiscipline>();
+
     public virtual Account Account { get; set; } = null!;
 }

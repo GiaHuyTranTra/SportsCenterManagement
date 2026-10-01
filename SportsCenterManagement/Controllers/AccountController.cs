@@ -7,6 +7,8 @@ using APIViewModel.Receptionist;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.AccountService;
+using Services.CoachService;
+using Services.ReceptionistService;
 using SportsCenterManagement.Filter;
 using System.Security.Claims;
 
@@ -17,10 +19,17 @@ namespace SportsCenterManagement.Controllers
     public class AccountController : ControllerBase
     {
         private readonly IAccountService _account;
+        private readonly ICoachService _coachService;
+        private readonly IReceptionistService _receptionistService;
 
-        public AccountController(IAccountService account)
+        public AccountController(
+            IAccountService account,
+            ICoachService coachService,
+            IReceptionistService receptionistService)
         {
             _account = account;
+            _coachService = coachService;
+            _receptionistService = receptionistService;
         }
 
         [Authorize(Roles = "CenterManager")]
@@ -52,31 +61,39 @@ namespace SportsCenterManagement.Controllers
         }
 
         [Authorize(Roles = "CenterManager")]
+        [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_coach")]
         public async Task<IActionResult> CreateCoachAsync(CreateCoachAPIViewModel info)
         {
-            if (ModelState.IsValid)
+            string? actorAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(actorAccountId))
             {
-                bool isCreated = await _account.CreateCoachAsync(info);
+                return Unauthorized();
+            }
 
-                if (isCreated)
-                {
-                    return Ok("Create coach successful");
-                }
-                else
-                {
-                    return StatusCode(500);
-                }
-            }
-            else
+            CreateManagedCoachAPIViewModel request = new CreateManagedCoachAPIViewModel
             {
-                string allErrors = string.Join(
-                    "\n",
-                    ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage));
-                return BadRequest(allErrors);
-            }
+                Email = info.Email,
+                Password = info.Password,
+                FullName = info.FullName,
+                Phone = info.Phone,
+                WorkSchedule = info.WorkSchedule,
+                DisciplineIds = info.DisciplineIds
+            };
+            (CreateCoachResult Result, CoachDetailAPIViewModel? Data) result =
+                await _coachService.CreateCoachAsync(actorAccountId, request);
+            return result.Result switch
+            {
+                CreateCoachResult.Success when result.Data is not null =>
+                    StatusCode(StatusCodes.Status201Created, result.Data),
+                CreateCoachResult.InvalidData => BadRequest("Invalid coach data."),
+                CreateCoachResult.DuplicateEmail => Conflict("Email already exists."),
+                CreateCoachResult.DuplicatePhone => Conflict("Phone number already exists."),
+                CreateCoachResult.DisciplineNotFoundOrInactive =>
+                    BadRequest("A discipline was not found or is inactive."),
+                CreateCoachResult.ConcurrencyConflict => Conflict(),
+                _ => StatusCode(StatusCodes.Status500InternalServerError)
+            };
         }
 
         [Authorize(Roles = "CenterManager")]
@@ -108,31 +125,31 @@ namespace SportsCenterManagement.Controllers
         }
 
         [Authorize(Roles = "CenterManager")]
+        [TypeFilter(typeof(AuthFilter))]
         [HttpPost("Create_receptionist")]
         public async Task<IActionResult> CreateReceptionistAsync(CreateReceptionistAPIViewModel info)
         {
-            if (ModelState.IsValid)
+            string? actorAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(actorAccountId))
             {
-                bool isCreated = await _account.CreateReceptionistAsync(info);
+                return Unauthorized();
+            }
 
-                if (isCreated)
-                {
-                    return Ok("Create receptionist successful");
-                }
-                else
-                {
-                    return StatusCode(500);
-                }
-            }
-            else
+            (CreateReceptionistResult Result, ReceptionistDetailAPIViewModel? Data) result =
+                await _receptionistService.CreateReceptionistAsync(actorAccountId, info);
+            return result.Result switch
             {
-                string allErrors = string.Join(
-                    "\n",
-                    ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage));
-                return BadRequest(allErrors);
-            }
+                CreateReceptionistResult.Success when result.Data is not null =>
+                    StatusCode(StatusCodes.Status201Created, result.Data),
+                CreateReceptionistResult.InvalidData => BadRequest("Invalid receptionist data."),
+                CreateReceptionistResult.DuplicateEmail => Conflict("Email already exists."),
+                CreateReceptionistResult.DuplicatePhone => Conflict("Phone number already exists."),
+                CreateReceptionistResult.ReceptionistRoleMissing =>
+                    StatusCode(StatusCodes.Status500InternalServerError),
+                CreateReceptionistResult.ConcurrencyConflict =>
+                    Conflict("A concurrent request conflict occurred."),
+                _ => StatusCode(StatusCodes.Status500InternalServerError)
+            };
         }
 
         [AllowAnonymous]

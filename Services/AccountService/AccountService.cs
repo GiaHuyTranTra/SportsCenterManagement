@@ -316,6 +316,8 @@ public class AccountService : IAccountService
             .Include(item => item.Role)
             .Include(item => item.CenterManager)
             .Include(item => item.Coach)
+                .ThenInclude(coach => coach!.CoachDisciplines)
+                    .ThenInclude(link => link.Discipline)
             .Include(item => item.Member)
             .Include(item => item.Receptionist)
             .FirstOrDefaultAsync(item => item.Id == accountId);
@@ -343,7 +345,12 @@ public class AccountService : IAccountService
                 break;
             case "Coach" when account.Coach is not null:
                 profile.FullName = account.Coach.FullName;
-                profile.Specialization = account.Coach.Specialization;
+                profile.Specialization = account.Coach.CoachDisciplines.Count > 0
+                    ? string.Join(", ", account.Coach.CoachDisciplines
+                        .OrderBy(link => link.Discipline.Name)
+                        .ThenBy(link => link.DisciplineId)
+                        .Select(link => link.Discipline.Name))
+                    : account.Coach.Specialization;
                 profile.WorkSchedule = account.Coach.WorkSchedule;
                 break;
             case "Member" when account.Member is not null:
@@ -386,7 +393,6 @@ public class AccountService : IAccountService
         string? normalizedFullName = null;
         string? normalizedPhone = null;
         string? normalizedAvatarUrl = null;
-        string? normalizedSpecialization = null;
         string? normalizedWorkSchedule = null;
         string? normalizedWorkShift = null;
         DateOnly? normalizedDateOfBirth = request.DateOfBirth;
@@ -425,11 +431,6 @@ public class AccountService : IAccountService
             normalizedAvatarUrl = NormalizeOptionalText(request.AvatarUrl);
         }
 
-        if (request.Specialization is not null)
-        {
-            normalizedSpecialization = NormalizeOptionalText(request.Specialization);
-        }
-
         if (request.WorkSchedule is not null)
         {
             normalizedWorkSchedule = NormalizeOptionalText(request.WorkSchedule);
@@ -444,6 +445,8 @@ public class AccountService : IAccountService
             .Include(item => item.Role)
             .Include(item => item.CenterManager)
             .Include(item => item.Coach)
+                .ThenInclude(coach => coach!.CoachDisciplines)
+                    .ThenInclude(link => link.Discipline)
             .Include(item => item.Member)
             .Include(item => item.Receptionist)
             .FirstOrDefaultAsync(item => item.Id == accountId);
@@ -460,6 +463,7 @@ public class AccountService : IAccountService
                 request.WorkShift is not null,
             "Coach" => request.DateOfBirth.HasValue ||
                 request.AvatarUrl is not null ||
+                request.Specialization is not null ||
                 request.WorkShift is not null,
             "Receptionist" => request.DateOfBirth.HasValue ||
                 request.AvatarUrl is not null ||
@@ -521,10 +525,6 @@ public class AccountService : IAccountService
                 if (request.FullName is not null)
                 {
                     account.Coach!.FullName = normalizedFullName!;
-                }
-                if (request.Specialization is not null)
-                {
-                    account.Coach!.Specialization = normalizedSpecialization;
                 }
                 if (request.WorkSchedule is not null)
                 {

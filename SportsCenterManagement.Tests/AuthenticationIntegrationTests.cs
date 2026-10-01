@@ -250,6 +250,106 @@ public class AuthenticationIntegrationTests
         Assert.Equal(expectedStatus, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("manager-account", "manager@example.com", "CenterManager", HttpStatusCode.OK)]
+    [InlineData("receptionist-account", "receptionist@example.com", "Receptionist", HttpStatusCode.Forbidden)]
+    [InlineData("coach-account", "coach@example.com", "Coach", HttpStatusCode.Forbidden)]
+    [InlineData("account-1", "member@example.com", "Member", HttpStatusCode.Forbidden)]
+    public async Task AuditLog_OnlyAllowsCenterManager(
+        string accountId,
+        string email,
+        string role,
+        HttpStatusCode expectedStatus)
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = CreateAuthenticatedClient(
+            factory,
+            CreateToken(accountId, email, role, DateTime.UtcNow.AddMinutes(10)));
+
+        HttpResponseMessage response = await client.GetAsync("/api/auditlog");
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AuditLog_WithoutToken_ReturnsUnauthorized()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/auditlog");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("manager-account", "manager@example.com", "CenterManager", HttpStatusCode.OK)]
+    [InlineData("receptionist-account", "receptionist@example.com", "Receptionist", HttpStatusCode.Forbidden)]
+    [InlineData("coach-account", "coach@example.com", "Coach", HttpStatusCode.Forbidden)]
+    [InlineData("account-1", "member@example.com", "Member", HttpStatusCode.Forbidden)]
+    public async Task CoachManagement_OnlyAllowsCenterManager(
+        string accountId,
+        string email,
+        string role,
+        HttpStatusCode expectedStatus)
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = CreateAuthenticatedClient(
+            factory,
+            CreateToken(accountId, email, role, DateTime.UtcNow.AddMinutes(10)));
+
+        HttpResponseMessage coaches = await client.GetAsync("/api/coach");
+        HttpResponseMessage disciplines = await client.GetAsync("/api/discipline");
+
+        Assert.Equal(expectedStatus, coaches.StatusCode);
+        Assert.Equal(expectedStatus, disciplines.StatusCode);
+    }
+
+    [Fact]
+    public async Task CoachManagement_WithoutToken_ReturnsUnauthorized()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage coaches = await client.GetAsync("/api/coach");
+        HttpResponseMessage disciplines = await client.GetAsync("/api/discipline");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, coaches.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, disciplines.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("manager-account", "manager@example.com", "CenterManager", HttpStatusCode.OK)]
+    [InlineData("receptionist-account", "receptionist@example.com", "Receptionist", HttpStatusCode.Forbidden)]
+    [InlineData("coach-account", "coach@example.com", "Coach", HttpStatusCode.Forbidden)]
+    [InlineData("account-1", "member@example.com", "Member", HttpStatusCode.Forbidden)]
+    public async Task ReceptionistManagement_OnlyAllowsCenterManager(
+        string accountId,
+        string email,
+        string role,
+        HttpStatusCode expectedStatus)
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = CreateAuthenticatedClient(
+            factory,
+            CreateToken(accountId, email, role, DateTime.UtcNow.AddMinutes(10)));
+
+        HttpResponseMessage response = await client.GetAsync("/api/receptionist");
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReceptionistManagement_WithoutToken_ReturnsUnauthorized()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/receptionist");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     private static HttpClient CreateAuthenticatedClient(WebApplicationFactory<Program> factory, string token)
     {
         HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions

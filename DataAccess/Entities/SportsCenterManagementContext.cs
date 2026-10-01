@@ -23,6 +23,10 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<Coach> Coaches { get; set; }
 
+    public virtual DbSet<CoachDiscipline> CoachDisciplines { get; set; }
+
+    public virtual DbSet<Discipline> Disciplines { get; set; }
+
     public virtual DbSet<Member> Members { get; set; }
 
     public virtual DbSet<Receptionist> Receptionists { get; set; }
@@ -129,6 +133,9 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.ToTable("Coach");
 
+            entity.HasIndex(e => new { e.CreatedAt, e.AccountId }, "IX_Coach_Pagination")
+                .IsDescending();
+
             entity.Property(e => e.AccountId)
                 .HasMaxLength(400)
                 .IsUnicode(false);
@@ -141,6 +148,45 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasForeignKey<Coach>(d => d.AccountId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Coach_Account");
+        });
+
+        modelBuilder.Entity<CoachDiscipline>(entity =>
+        {
+            entity.HasKey(e => new { e.CoachAccountId, e.DisciplineId });
+
+            entity.ToTable("CoachDiscipline");
+
+            entity.HasIndex(e => e.DisciplineId, "IX_CoachDiscipline_DisciplineId");
+
+            entity.Property(e => e.CoachAccountId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_CoachDiscipline_CreatedAt");
+
+            entity.HasOne(d => d.CoachAccount).WithMany(p => p.CoachDisciplines)
+                .HasForeignKey(d => d.CoachAccountId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CoachDiscipline_Coach");
+
+            entity.HasOne(d => d.Discipline).WithMany(p => p.CoachDisciplines)
+                .HasForeignKey(d => d.DisciplineId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CoachDiscipline_Discipline");
+        });
+
+        modelBuilder.Entity<Discipline>(entity =>
+        {
+            entity.ToTable("Discipline");
+
+            entity.HasIndex(e => e.Name, "UQ_Discipline_Name").IsUnique();
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_Discipline_CreatedAt");
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true, "DF_Discipline_IsActive");
+            entity.Property(e => e.Name).HasMaxLength(80);
         });
 
         modelBuilder.Entity<Member>(entity =>

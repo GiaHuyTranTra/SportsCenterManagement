@@ -11,13 +11,17 @@ using NSwag;
 using NSwag.Generation.Processors.Security;
 using Services.AccountService;
 using Services.AccessTokenService;
+using Services.AuditLogService;
 using Services.AuthService;
+using Services.CoachService;
+using Services.DisciplineService;
 using Services.EmailService;
 using Services.MemberService;
 using Services.MembershipPackageService;
 using Services.MembershipInvoiceService;
 using Services.MemberSubscriptionService;
 using Services.PasswordHashService;
+using Services.ReceptionistService;
 using Services.Utils;
 using SportsCenterManagement.Filter;
 using SportsCenterManagement.Middleware;
@@ -205,7 +209,10 @@ public class Program
         builder.Host.ConfigureContainer<ContainerBuilder>(containerBuilder =>
         {
             containerBuilder.RegisterType<AccountService>().As<IAccountService>();
+            containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
+            containerBuilder.RegisterType<CoachService>().As<ICoachService>();
+            containerBuilder.RegisterType<DisciplineService>().As<IDisciplineService>();
             containerBuilder.RegisterType<EmailService>().As<IEmailService>();
             containerBuilder.RegisterType<MemberService>().As<IMemberService>();
             containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
@@ -213,6 +220,7 @@ public class Program
             containerBuilder.RegisterType<MemberSubscriptionService>().As<IMemberSubscriptionService>();
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
+            containerBuilder.RegisterType<ReceptionistService>().As<IReceptionistService>();
             containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 
