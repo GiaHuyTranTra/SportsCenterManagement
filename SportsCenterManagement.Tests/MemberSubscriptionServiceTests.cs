@@ -1,4 +1,5 @@
 using APIViewModel.MemberSubscription;
+using APIViewModel.MembershipInvoice;
 using DataAccess.Entities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -152,6 +153,43 @@ public class MemberSubscriptionServiceTests
         Assert.Equal(1, fixture.Email.WelcomeMessagesSent);
         string responseJson = JsonSerializer.Serialize(data);
         Assert.DoesNotContain("passwordHash", responseJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CounterRegisterOrRenewAsync_CreatesPendingOrderBeforePayment()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture =
+            await MemberSubscriptionServiceTestFixture.CreateAsync();
+        Account memberAccount = await fixture.Context.Accounts
+            .SingleAsync(account => account.Id == "member-account");
+        memberAccount.Member = new Member
+        {
+            AccountId = memberAccount.Id,
+            MemberCode = "MEM001",
+            FullName = "Existing Member",
+            CreatedAt = memberAccount.CreatedAt
+        };
+        await fixture.Context.SaveChangesAsync();
+        CounterRegisterSubscriptionAPIViewModel request = new CounterRegisterSubscriptionAPIViewModel
+        {
+            MemberAccountId = "member-account",
+            PackageId = fixture.Package.Id,
+            PaymentMethod = "CASH"
+        };
+
+        (CounterRegisterResult result, MembershipReceiptAPIViewModel? receipt, PendingOrderConflictResponseAPIViewModel? pendingInfo) =
+            await fixture.Service.CounterRegisterOrRenewAsync(fixture.Manager.Id, request);
+
+        Assert.Equal(CounterRegisterResult.Success, result);
+        Assert.Null(pendingInfo);
+        Assert.Equal("PENDING_PAYMENT", receipt?.SubscriptionStatus);
+        Assert.Equal("PENDING_PAYMENT", receipt?.InvoiceStatus);
+        Assert.Null(receipt?.PaidAt);
+        Assert.Null(receipt?.PaidByStaffId);
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.SingleAsync();
+        Assert.Equal("PENDING_PAYMENT", invoice.Status);
+        Assert.Null(invoice.PaidAt);
+        Assert.Null(invoice.PaidBy);
     }
 
     private static async Task AssertNoRegistrationWritesAsync(

@@ -510,8 +510,6 @@ public class MemberSubscriptionService : IMemberSubscriptionService
         {
             Account? staff = await _context.Accounts
                 .Include(a => a.Role)
-                .Include(a => a.Receptionist)
-                .Include(a => a.CenterManager)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Id == staffAccountId);
 
@@ -535,12 +533,12 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 return (CounterRegisterResult.StaffLocked, null, null);
             }
 
-            string? staffFullName = staff.Receptionist?.FullName ?? staff.CenterManager?.FullName;
-
-            Member? member = await _context.Members
-                .FromSqlRaw(
+            IQueryable<Member> memberQuery = _context.Database.IsSqlServer()
+                ? _context.Members.FromSqlRaw(
                     "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}",
                     request.MemberAccountId)
+                : _context.Members.Where(member => member.AccountId == request.MemberAccountId);
+            Member? member = await memberQuery
                 .Include(m => m.Account)
                 .ThenInclude(a => a.Role)
                 .FirstOrDefaultAsync();
@@ -634,7 +632,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 StartDate = startDate,
                 EndDate = endDate,
                 Kind = kind,
-                Status = "CONFIRMED",
+                Status = "PENDING_PAYMENT",
                 CreatedAt = nowUtc
             };
 
@@ -643,12 +641,10 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 InvoiceNumber = invoiceNumber,
                 MemberId = request.MemberAccountId,
                 Amount = package.Price,
-                Status = "PAID",
+                Status = "PENDING_PAYMENT",
                 PaymentMethod = normalizedPaymentMethod,
                 CreatedBy = staffAccountId,
-                PaidBy = staffAccountId,
                 CreatedAt = nowUtc,
-                PaidAt = nowUtc,
                 Subscription = subscription
             };
 
@@ -668,7 +664,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 CreatedAt = invoice.CreatedAt,
                 PaidAt = invoice.PaidAt,
                 PaidByStaffId = invoice.PaidBy,
-                PaidByStaffName = staffFullName,
+                PaidByStaffName = null,
                 SubscriptionId = subscription.Id,
                 SubscriptionStatus = subscription.Status,
                 Kind = subscription.Kind,
