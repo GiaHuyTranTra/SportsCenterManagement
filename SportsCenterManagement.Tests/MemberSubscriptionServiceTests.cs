@@ -1,4 +1,5 @@
 using APIViewModel.MemberSubscription;
+using APIViewModel.MembershipInvoice;
 using DataAccess.Entities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -77,6 +78,57 @@ public class MemberSubscriptionServiceTests
         Assert.Equal("FAILED", data?.EmailDelivery);
         Assert.Equal("PENDING_PAYMENT", data?.Receipt.SubscriptionStatus);
         Assert.Single(await fixture.Context.Members.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CounterRegisterOrRenewAsync_CreatesPendingOrderBeforePayment()
+    {
+        await using CounterRegistrationFixture fixture =
+            await CounterRegistrationFixture.CreateAsync();
+        Role memberRole = await fixture.Context.Roles
+            .SingleAsync(role => role.Name == "Member");
+        DateTime createdAt = DateTime.UtcNow;
+        Account memberAccount = new Account
+        {
+            Id = "existing-member",
+            Email = "existing.member@example.com",
+            Phone = "0900000002",
+            PasswordHash = "unused",
+            Status = "Active",
+            CreatedAt = createdAt,
+            RoleId = memberRole.Id,
+            Role = memberRole
+        };
+        memberAccount.Member = new Member
+        {
+            AccountId = memberAccount.Id,
+            MemberCode = "MEM001",
+            FullName = "Existing Member",
+            CreatedAt = createdAt,
+            Account = memberAccount
+        };
+        fixture.Context.Accounts.Add(memberAccount);
+        await fixture.Context.SaveChangesAsync();
+        CounterRegisterSubscriptionAPIViewModel request = new CounterRegisterSubscriptionAPIViewModel
+        {
+            MemberAccountId = memberAccount.Id,
+            PackageId = fixture.Package.Id,
+            PaymentMethod = "CASH"
+        };
+
+        (CounterRegisterResult result, MembershipReceiptAPIViewModel? receipt, PendingOrderConflictResponseAPIViewModel? pendingInfo) =
+            await fixture.Service.CounterRegisterOrRenewAsync(fixture.Manager.Id, request);
+
+        Assert.Equal(CounterRegisterResult.Success, result);
+        Assert.Null(pendingInfo);
+        Assert.Equal("PENDING_PAYMENT", receipt?.SubscriptionStatus);
+        Assert.Equal("PENDING_PAYMENT", receipt?.InvoiceStatus);
+        Assert.Null(receipt?.PaidAt);
+        Assert.Null(receipt?.PaidByStaffId);
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.SingleAsync();
+        Assert.Equal("PENDING_PAYMENT", invoice.Status);
+        Assert.Null(invoice.PaidAt);
+        Assert.Null(invoice.PaidBy);
     }
 
     private sealed class CounterRegistrationFixture : IAsyncDisposable
