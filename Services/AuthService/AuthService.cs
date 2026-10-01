@@ -66,6 +66,29 @@ public class AuthService : IAuthService
         return (result, account);
     }
 
+    public async Task<LoginResponseAPIViewModel?> GetSessionAccountAsync(string accountId)
+    {
+        Account? account = await _context.Accounts
+            .AsNoTracking()
+            .Include(candidate => candidate.Role)
+            .FirstOrDefaultAsync(candidate =>
+                candidate.Id == accountId &&
+                candidate.Status == "Active" &&
+                candidate.DeletedAt == null);
+
+        if (account is null)
+        {
+            return null;
+        }
+
+        return new LoginResponseAPIViewModel
+        {
+            Id = account.Id,
+            Email = account.Email,
+            Role = account.Role.Name
+        };
+    }
+
     // Shared implementation for unified and role-specific login.
     // requiredRoleName: when non-null, only accounts with that role proceed;
     // mismatched role returns InvalidCredentials to avoid leaking account existence.
@@ -92,7 +115,7 @@ public class AuthService : IAuthService
             return (LoginResult.InvalidCredentials, null);
         }
 
-        if (initialAccount.Status != "Active")
+        if (IsInactive(initialAccount))
         {
             return (LoginResult.AccountInactive, null);
         }
@@ -153,7 +176,7 @@ public class AuthService : IAuthService
                 return (LoginResult.InvalidCredentials, null);
             }
 
-            if (lockedAccount.Status != "Active")
+            if (IsInactive(lockedAccount))
             {
                 await transaction.RollbackAsync();
                 return (LoginResult.AccountInactive, null);
@@ -235,7 +258,7 @@ public class AuthService : IAuthService
             return (LoginResult.InvalidCredentials, null);
         }
 
-        if (account.Status != "Active")
+        if (IsInactive(account))
         {
             return (LoginResult.AccountInactive, null);
         }
@@ -339,7 +362,7 @@ public class AuthService : IAuthService
             return ChangePasswordWithOtpResult.AccountNotFound;
         }
 
-        if (initialAccount.Status != "Active")
+        if (IsInactive(initialAccount))
         {
             return ChangePasswordWithOtpResult.AccountInactive;
         }
@@ -467,7 +490,7 @@ public class AuthService : IAuthService
             return (RequestPasswordChangeOtpResult.AccountNotFound, 0, 0, null);
         }
 
-        if (account.Status != "Active")
+        if (IsInactive(account))
         {
             return (RequestPasswordChangeOtpResult.AccountInactive, 0, 0, null);
         }
@@ -595,7 +618,7 @@ public class AuthService : IAuthService
             return ChangePasswordWithOtpResult.AccountNotFound;
         }
 
-        if (account.Status != "Active")
+        if (IsInactive(account))
         {
             return ChangePasswordWithOtpResult.AccountInactive;
         }
@@ -692,6 +715,11 @@ public class AuthService : IAuthService
         }
 
         return null;
+    }
+
+    private static bool IsInactive(Account account)
+    {
+        return account.Status != "Active" || account.DeletedAt is not null;
     }
 
     // Walk the full exception chain to detect a SQL Server deadlock (1205) at any depth.

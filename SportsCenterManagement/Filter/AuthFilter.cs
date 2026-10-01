@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Caching.Memory;
+using Services.AuthService;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
@@ -11,11 +12,12 @@ namespace SportsCenterManagement.Filter
     public class AuthFilter : IAsyncActionFilter
     {
         private readonly IMemoryCache _cache;
+        private readonly IAuthService _authService;
 
-
-        public AuthFilter(IMemoryCache cache)
+        public AuthFilter(IMemoryCache cache, IAuthService authService)
         {
             _cache = cache;
+            _authService = authService;
         }
 
         public async Task OnActionExecutionAsync(
@@ -28,6 +30,12 @@ namespace SportsCenterManagement.Filter
                 endpoint?.Metadata.GetMetadata<IAllowAnonymous>();
 
             if (allowAnonymous is not null)
+            {
+                await next();
+                return;
+            }
+
+            if (context.HttpContext.User.Identity?.IsAuthenticated != true)
             {
                 await next();
                 return;
@@ -69,6 +77,46 @@ namespace SportsCenterManagement.Filter
                         },
                         TraceId = context.HttpContext.TraceIdentifier
                     });
+                return;
+            }
+
+            string? accountId = context.HttpContext.User
+                .FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                context.Result = new UnauthorizedObjectResult(
+                    new ApiErrorResponseAPIViewModel
+                    {
+                        Success = false,
+                        Error = new ApiErrorAPIViewModel
+                        {
+                            Code = "INVALID_TOKEN_CLAIMS",
+                            Message = "The access token does not contain the required claims.",
+                            Details = null
+                        },
+                        TraceId = context.HttpContext.TraceIdentifier
+                    });
+                return;
+            }
+
+            if (await _authService.GetSessionAccountAsync(accountId) is null)
+            {
+                context.Result = new ObjectResult(
+                    new ApiErrorResponseAPIViewModel
+                    {
+                        Success = false,
+                        Error = new ApiErrorAPIViewModel
+                        {
+                            Code = "ACCOUNT_INACTIVE",
+                            Message = "This account is not active.",
+                            Details = null
+                        },
+                        TraceId = context.HttpContext.TraceIdentifier
+                    })
+                {
+                    StatusCode = StatusCodes.Status403Forbidden
+                };
                 return;
             }
 

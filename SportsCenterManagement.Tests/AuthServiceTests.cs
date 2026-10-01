@@ -70,6 +70,27 @@ public class AuthServiceTests
         Assert.True(account.IsLocked);
     }
 
+    [Fact]
+    public async Task LoginAsync_WithDeletedAccount_ReturnsAccountInactive()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        Account account = AuthTestData.CreateAccount();
+        account.DeletedAt = DateTime.UtcNow;
+        context.Add(account);
+        await context.SaveChangesAsync();
+        AuthService service = CreateAuthService(context);
+
+        (LoginResult result, LoginResponseAPIViewModel? response) =
+            await service.LoginAsync(new LoginRequestAPIViewModel
+            {
+                Email = account.Email,
+                Password = "CorrectPassword123!"
+            });
+
+        Assert.Equal(LoginResult.AccountInactive, result);
+        Assert.Null(response);
+    }
+
     private static SportsCenterManagementContext CreateContext()
     {
         DbContextOptions<SportsCenterManagementContext> options = new DbContextOptionsBuilder<SportsCenterManagementContext>()

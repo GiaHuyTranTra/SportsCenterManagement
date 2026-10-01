@@ -53,6 +53,8 @@ public interface IAuthService
     Task<(LoginResult Result, LoginResponseAPIViewModel? Account)> LoginAsync(
         LoginRequestAPIViewModel request);
 
+    Task<LoginResponseAPIViewModel?> GetSessionAccountAsync(string accountId);
+
     Task<(RequestPasswordChangeOtpResult Result, int RetryAfterSeconds)>
         RequestChangePasswordOtpAsync(string accountId);
 

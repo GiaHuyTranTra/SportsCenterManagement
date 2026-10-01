@@ -6,13 +6,17 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
+using DataAccess.Entities;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace SportsCenterManagement.Tests;
 
@@ -29,8 +33,8 @@ public class AuthenticationIntegrationTests
 
         HttpResponseMessage response = await client.PostAsync("/api/auth/check-token", null);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         string body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, body);
         Assert.Contains("account-1", body);
         Assert.Contains("member@example.com", body);
         Assert.Contains("Member", body);
@@ -153,6 +157,23 @@ public class AuthenticationIntegrationTests
 
             builder.ConfigureServices((IServiceCollection services) =>
             {
+                string databaseName = Guid.NewGuid().ToString();
+                services.RemoveAll<DbContextOptions<SportsCenterManagementContext>>();
+                services.RemoveAll<IDbContextOptionsConfiguration<SportsCenterManagementContext>>();
+                services.RemoveAll<SportsCenterManagementContext>();
+                services.AddDbContext<SportsCenterManagementContext>(options =>
+                    options.UseInMemoryDatabase(databaseName));
+                DbContextOptions<SportsCenterManagementContext> databaseOptions =
+                    new DbContextOptionsBuilder<SportsCenterManagementContext>()
+                        .UseInMemoryDatabase(databaseName)
+                        .Options;
+                using (SportsCenterManagementContext database =
+                    new SportsCenterManagementContext(databaseOptions))
+                {
+                    database.Accounts.Add(AuthTestData.CreateAccount());
+                    database.SaveChanges();
+                }
+
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters
@@ -175,6 +196,7 @@ public class AuthenticationIntegrationTests
             {
                 loggingBuilder.ClearProviders();
             });
+
         }
     }
 }
