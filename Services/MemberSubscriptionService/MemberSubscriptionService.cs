@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
+using APIViewModel.Member;
 using APIViewModel.MembershipInvoice;
 using APIViewModel.MemberSubscription;
 using DataAccess.Entities;
@@ -10,6 +13,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Services.EmailService;
+using Services.PasswordHashService;
 
 namespace Services.MemberSubscriptionService;
 
@@ -17,13 +22,19 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 {
     private readonly SportsCenterManagementContext _context;
     private readonly IConfiguration _configuration;
+    private readonly IPasswordHashService _passwordHashService;
+    private readonly IEmailService _emailService;
 
     public MemberSubscriptionService(
         SportsCenterManagementContext context,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IPasswordHashService passwordHashService,
+        IEmailService emailService)
     {
         _context = context;
         _configuration = configuration;
+        _passwordHashService = passwordHashService;
+        _emailService = emailService;
     }
 
     public async Task<(RegisterSubscriptionResult Result, MemberSubscriptionDetailAPIViewModel? Data)> RegisterOrRenewAsync(
@@ -199,6 +210,265 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             throw;
         }
+    }
+
+    public async Task<(CounterRegisterMemberResult Result, CounterRegisterMemberResponseAPIViewModel? Data)>
+        RegisterMemberAtCounterAsync(
+            string staffAccountId,
+            CounterRegisterMemberAPIViewModel request)
+    {
+        (string? fullName, string? email, string? phone, string? paymentMethod) =
+            NormalizeCounterRegistration(request);
+
+        if (paymentMethod is null)
+        {
+            return (CounterRegisterMemberResult.InvalidPaymentMethod, null);
+        }
+
+        if (fullName is null || email is null || phone is null)
+        {
+            return (CounterRegisterMemberResult.InvalidData, null);
+        }
+
+        if (!request.PackageId.HasValue || request.PackageId.Value <= 0 ||
+            !request.ExpectedPrice.HasValue || request.ExpectedPrice.Value <= 0m)
+        {
+            return (CounterRegisterMemberResult.InvalidData, null);
+        }
+
+        string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
+            ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured.");
+        TimeZoneInfo businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        DateOnly today = DateOnly.FromDateTime(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, businessTimeZone));
+        CounterRegisterMemberResponseAPIViewModel? response = null;
+
+        await using IDbContextTransaction transaction =
+            await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
+
+        try
+        {
+            Account? staff = await _context.Accounts
+                .Include(account => account.Role)
+                .Include(account => account.CenterManager)
+                .Include(account => account.Receptionist)
+                .FirstOrDefaultAsync(account => account.Id == staffAccountId);
+            if (staff is null)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.StaffNotFound, null);
+            }
+
+            if (staff.Role.Name != "CenterManager" && staff.Role.Name != "Receptionist")
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.StaffRoleNotAllowed, null);
+            }
+
+            if (staff.Status != "Active" || staff.DeletedAt is not null)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.StaffInactive, null);
+            }
+
+            if (staff.IsLocked)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.StaffLocked, null);
+            }
+
+            Role? memberRole = await _context.Roles
+                .FirstOrDefaultAsync(role => role.Name == "Member");
+            if (memberRole is null)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.MemberRoleMissing, null);
+            }
+
+            MembershipPackage? package = await _context.MembershipPackages
+                .FirstOrDefaultAsync(candidate => candidate.Id == request.PackageId.Value);
+            if (package is null)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.PackageNotFound, null);
+            }
+
+            if (!package.IsActive)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.PackageInactive, null);
+            }
+
+            if (package.Price != request.ExpectedPrice.Value)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.PriceChanged, null);
+            }
+
+            bool duplicateEmail = await _context.Accounts
+                .AnyAsync(account => account.Email.ToLower() == email);
+            if (duplicateEmail)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.DuplicateEmail, null);
+            }
+
+            bool duplicatePhone = await _context.Accounts
+                .AnyAsync(account => account.Phone == phone);
+            if (duplicatePhone)
+            {
+                await transaction.RollbackAsync();
+                return (CounterRegisterMemberResult.DuplicatePhone, null);
+            }
+
+            DateTime nowUtc = DateTime.UtcNow;
+            string initialPassword = GenerateInitialPassword();
+            string memberCode = await GenerateUniqueMemberCodeAsync();
+            string invoiceNumber = await GenerateUniqueInvoiceNumberAsync(nowUtc);
+            Account account = new Account
+            {
+                Id = Guid.NewGuid().ToString(),
+                Email = email,
+                Phone = phone,
+                PasswordHash = _passwordHashService.HashPassword(initialPassword),
+                Status = "Active",
+                FailedLoginCount = 0,
+                IsLocked = false,
+                CreatedAt = nowUtc,
+                RoleId = memberRole.Id,
+                Role = memberRole
+            };
+            Member member = new Member
+            {
+                AccountId = account.Id,
+                MemberCode = memberCode,
+                FullName = fullName,
+                DateOfBirth = request.DateOfBirth,
+                CreatedAt = nowUtc,
+                Account = account
+            };
+            account.Member = member;
+
+            DateOnly endDate = today.AddMonths(package.DurationMonths).AddDays(-1);
+            MemberSubscription subscription = new MemberSubscription
+            {
+                MemberId = account.Id,
+                PackageId = package.Id,
+                PackageName = package.Name,
+                PackagePrice = package.Price,
+                DurationMonths = package.DurationMonths,
+                Benefits = package.Benefits,
+                StartDate = today,
+                EndDate = endDate,
+                Kind = "REGISTER",
+                Status = "PENDING_PAYMENT",
+                IsSuspended = false,
+                CreatedAt = nowUtc,
+                Member = member,
+                Package = package
+            };
+            MembershipInvoice invoice = new MembershipInvoice
+            {
+                InvoiceNumber = invoiceNumber,
+                MemberId = account.Id,
+                Amount = package.Price,
+                Status = "PENDING_PAYMENT",
+                PaymentMethod = paymentMethod,
+                CreatedBy = staff.Id,
+                CreatedAt = nowUtc,
+                Member = member,
+                Subscription = subscription,
+                CreatedByNavigation = staff
+            };
+
+            _context.Accounts.Add(account);
+            _context.MembershipInvoices.Add(invoice);
+            await _context.SaveChangesAsync();
+
+            List<string> benefits = JsonSerializer.Deserialize<List<string>>(package.Benefits)
+                ?? new List<string>();
+            response = new CounterRegisterMemberResponseAPIViewModel
+            {
+                Member = MapMemberDetail(member),
+                Receipt = new MembershipReceiptAPIViewModel
+                {
+                    InvoiceId = invoice.Id,
+                    InvoiceNumber = invoice.InvoiceNumber,
+                    Amount = invoice.Amount,
+                    PaymentMethod = invoice.PaymentMethod,
+                    InvoiceStatus = invoice.Status,
+                    CreatedAt = invoice.CreatedAt,
+                    PaidAt = null,
+                    PaidByStaffId = null,
+                    PaidByStaffName = null,
+                    SubscriptionId = subscription.Id,
+                    SubscriptionStatus = subscription.Status,
+                    Kind = subscription.Kind,
+                    StartDate = subscription.StartDate,
+                    EndDate = subscription.EndDate,
+                    PackageId = package.Id,
+                    PackageName = package.Name,
+                    PackagePrice = package.Price,
+                    DurationMonths = package.DurationMonths,
+                    Benefits = benefits,
+                    MemberAccountId = member.AccountId,
+                    MemberCode = member.MemberCode,
+                    MemberFullName = member.FullName,
+                    MemberEmail = account.Email,
+                    MemberPhone = account.Phone
+                },
+                InitialPassword = initialPassword,
+                EmailDelivery = "NOT_CONFIGURED"
+            };
+
+            await transaction.CommitAsync();
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackAsync();
+
+            if (IsDeadlockVictim(exception) || exception is DbUpdateConcurrencyException)
+            {
+                return (CounterRegisterMemberResult.ConcurrencyConflict, null);
+            }
+
+            if (IsSpecificUniqueConstraintViolation(exception, "UQ_MembershipInvoice_InvoiceNumber"))
+            {
+                return (CounterRegisterMemberResult.InvoiceNumberCollision, null);
+            }
+
+            if (IsSpecificUniqueConstraintViolation(exception, "UQ_MemberSubscription_Pending_Member"))
+            {
+                return (CounterRegisterMemberResult.PendingOrderExists, null);
+            }
+
+            throw;
+        }
+
+        if (response is null)
+        {
+            throw new InvalidOperationException("Counter registration completed without a response.");
+        }
+
+        if (_emailService.IsConfigured)
+        {
+            try
+            {
+                await _emailService.SendMemberWelcomeAsync(
+                    response.Member.Email,
+                    response.Member.FullName ?? string.Empty,
+                    response.InitialPassword,
+                    response.Receipt.PackageName,
+                    response.Receipt.Amount);
+                response.EmailDelivery = "SENT";
+            }
+            catch (Exception)
+            {
+                response.EmailDelivery = "FAILED";
+            }
+        }
+
+        return (CounterRegisterMemberResult.Success, response);
     }
 
     public async Task<(CounterRegisterResult Result, MembershipReceiptAPIViewModel? Receipt, PendingOrderConflictResponseAPIViewModel? PendingInfo)> CounterRegisterOrRenewAsync(
@@ -460,6 +730,103 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             throw;
         }
+    }
+
+    private static (
+        string? FullName,
+        string? Email,
+        string? Phone,
+        string? PaymentMethod) NormalizeCounterRegistration(
+            CounterRegisterMemberAPIViewModel request)
+    {
+        string normalizedFullName = request.FullName?.Trim() ?? string.Empty;
+        string normalizedEmail = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+        string normalizedPhone = request.Phone?.Trim() ?? string.Empty;
+        string normalizedPaymentMethod = request.PaymentMethod?.Trim().ToUpperInvariant()
+            ?? string.Empty;
+        bool validPhone = normalizedPhone.Length == 10 &&
+            normalizedPhone[0] == '0' &&
+            normalizedPhone.All(character => character >= '0' && character <= '9');
+        bool validPaymentMethod = normalizedPaymentMethod == "CASH" ||
+            normalizedPaymentMethod == "BANK_TRANSFER" ||
+            normalizedPaymentMethod == "CARD";
+
+        if (!validPaymentMethod)
+        {
+            return (null, null, null, null);
+        }
+
+        if (normalizedFullName.Length < 2 ||
+            normalizedFullName.Length > 100 ||
+            normalizedEmail.Length == 0 ||
+            normalizedEmail.Length > 150 ||
+            !new EmailAddressAttribute().IsValid(normalizedEmail) ||
+            !validPhone ||
+            !request.DateOfBirth.HasValue ||
+            request.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            return (null, null, null, normalizedPaymentMethod);
+        }
+
+        return (
+            normalizedFullName,
+            normalizedEmail,
+            normalizedPhone,
+            normalizedPaymentMethod);
+    }
+
+    private async Task<string> GenerateUniqueMemberCodeAsync()
+    {
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            string candidate = $"MB{DateTime.UtcNow:yyMMdd}{RandomNumberGenerator.GetInt32(1000, 10000)}";
+            if (!await _context.Members.AnyAsync(member => member.MemberCode == candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "MB" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+    }
+
+    private async Task<string> GenerateUniqueInvoiceNumberAsync(DateTime nowUtc)
+    {
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            string candidate = "INV-" + nowUtc.ToString("yyyyMMdd") + "-" +
+                Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+            if (!await _context.MembershipInvoices
+                    .AnyAsync(invoice => invoice.InvoiceNumber == candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "INV-" + nowUtc.ToString("yyyyMMdd") + "-" +
+            Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
+    }
+
+    private static string GenerateInitialPassword()
+    {
+        byte[] randomBytes = RandomNumberGenerator.GetBytes(12);
+        return "Tt9!" + Convert.ToHexString(randomBytes);
+    }
+
+    private static MemberDetailAPIViewModel MapMemberDetail(Member member)
+    {
+        return new MemberDetailAPIViewModel
+        {
+            AccountId = member.AccountId,
+            MemberCode = member.MemberCode,
+            FullName = member.FullName,
+            DateOfBirth = member.DateOfBirth,
+            AvatarUrl = member.AvatarUrl,
+            Email = member.Account.Email,
+            Phone = member.Account.Phone,
+            Status = member.Account.Status,
+            CreatedAt = member.CreatedAt,
+            UpdatedAt = member.Account.UpdatedAt
+        };
     }
 
     private static bool IsDeadlockVictim(Exception ex)

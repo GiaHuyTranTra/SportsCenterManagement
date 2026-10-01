@@ -55,6 +55,7 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasMaxLength(400)
                 .IsUnicode(false);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.DeletedAt).HasColumnType("datetime2");
             entity.Property(e => e.Email)
                 .HasMaxLength(150)
                 .IsUnicode(false);
@@ -233,6 +234,8 @@ public partial class SportsCenterManagementContext : DbContext
             entity.Property(e => e.Kind)
                 .HasMaxLength(20)
                 .IsUnicode(false);
+            entity.Property(e => e.IsSuspended)
+                .HasDefaultValue(false, "DF_MemberSubscription_IsSuspended");
             entity.Property(e => e.MemberId)
                 .HasMaxLength(400)
                 .IsUnicode(false);
@@ -242,6 +245,7 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasMaxLength(20)
                 .IsUnicode(false)
                 .HasDefaultValue("PENDING_PAYMENT", "DF_MemberSubscription_Status");
+            entity.Property(e => e.SuspensionReason).HasMaxLength(500);
 
             entity.HasOne(d => d.Member).WithMany(p => p.MemberSubscriptions)
                 .HasForeignKey(d => d.MemberId)

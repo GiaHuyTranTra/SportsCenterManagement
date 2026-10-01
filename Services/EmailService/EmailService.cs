@@ -19,6 +19,19 @@ public class EmailService : IEmailService
         _logger = logger;
     }
 
+    public bool IsConfigured
+    {
+        get
+        {
+            bool hasUsername = !string.IsNullOrWhiteSpace(_options.Username);
+            bool hasPassword = !string.IsNullOrWhiteSpace(_options.Password);
+            return !string.IsNullOrWhiteSpace(_options.Host) &&
+                _options.Port > 0 &&
+                !string.IsNullOrWhiteSpace(_options.FromEmail) &&
+                hasUsername == hasPassword;
+        }
+    }
+
     public async Task SendPasswordChangeOtpAsync(
         string recipientEmail,
         string otp,
@@ -57,6 +70,53 @@ public class EmailService : IEmailService
         catch (Exception exception)
         {
             _logger.LogError(exception, "Password change OTP email delivery failed.");
+            throw;
+        }
+    }
+
+    public async Task SendMemberWelcomeAsync(
+        string recipientEmail,
+        string fullName,
+        string initialPassword,
+        string packageName,
+        decimal amount)
+    {
+        ValidateConfiguration();
+
+        using MailMessage message = new MailMessage
+        {
+            From = new MailAddress(_options.FromEmail, _options.FromName),
+            Subject = "Sports Center membership registration",
+            Body = "Hello " + fullName + ",\n\n" +
+                "Your account has been created for package " + packageName +
+                " with amount " + amount + ".\n" +
+                "Initial password: " + initialPassword + "\n\n" +
+                "Please change this password after signing in.",
+            IsBodyHtml = false
+        };
+        message.To.Add(new MailAddress(recipientEmail));
+
+        using SmtpClient client = new SmtpClient(_options.Host, _options.Port)
+        {
+            EnableSsl = _options.EnableSsl,
+            UseDefaultCredentials = false
+        };
+
+        if (!string.IsNullOrWhiteSpace(_options.Username) &&
+            !string.IsNullOrWhiteSpace(_options.Password))
+        {
+            client.Credentials = new NetworkCredential(
+                _options.Username,
+                _options.Password);
+        }
+
+        try
+        {
+            await client.SendMailAsync(message);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Member welcome email delivery failed.");
             throw;
         }
     }

@@ -2,14 +2,12 @@ using APIViewModel.MembershipPackage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.MembershipPackageService;
-using SportsCenterManagement.Filter;
 
 namespace SportsCenterManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(Roles = "CenterManager")]
-[TypeFilter(typeof(AuthFilter))]
 public class MembershipPackageController : ControllerBase
 {
     private readonly IMembershipPackageService _membershipPackageService;

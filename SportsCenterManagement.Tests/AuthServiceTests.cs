@@ -3,6 +3,7 @@ using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
 using Services.AuthService;
 using Services.PasswordHashService;
+using System.Text.Json;
 
 namespace SportsCenterManagement.Tests;
 
@@ -68,6 +69,58 @@ public class AuthServiceTests
 
         Assert.Equal(5, account.FailedLoginCount);
         Assert.True(account.IsLocked);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithDeletedAccount_ReturnsAccountInactive()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        Account account = AuthTestData.CreateAccount();
+        account.DeletedAt = DateTime.UtcNow;
+        context.Add(account);
+        await context.SaveChangesAsync();
+        AuthService service = CreateAuthService(context);
+
+        (LoginResult result, LoginResponseAPIViewModel? response) =
+            await service.LoginAsync(new LoginRequestAPIViewModel
+            {
+                Email = account.Email,
+                Password = "CorrectPassword123!"
+            });
+
+        Assert.Equal(LoginResult.AccountInactive, result);
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithMemberProfile_ReturnsFullNameAndCreatedAt()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        Account account = AuthTestData.CreateAccount();
+        account.CreatedAt = DateTime.UtcNow;
+        account.Member = new Member
+        {
+            AccountId = account.Id,
+            MemberCode = "MEM001",
+            FullName = "Long Member",
+            CreatedAt = account.CreatedAt
+        };
+        context.Add(account);
+        await context.SaveChangesAsync();
+        AuthService service = CreateAuthService(context);
+
+        (LoginResult result, LoginResponseAPIViewModel? response) =
+            await service.LoginAsync(new LoginRequestAPIViewModel
+            {
+                Email = account.Email,
+                Password = "CorrectPassword123!"
+            });
+
+        Assert.Equal(LoginResult.Success, result);
+        Assert.NotNull(response);
+        JsonElement payload = JsonSerializer.SerializeToElement(response);
+        Assert.Equal("Long Member", payload.GetProperty("FullName").GetString());
+        Assert.Equal(account.CreatedAt, payload.GetProperty("CreatedAt").GetDateTime());
     }
 
     private static SportsCenterManagementContext CreateContext()

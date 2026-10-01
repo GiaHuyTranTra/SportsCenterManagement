@@ -1,12 +1,59 @@
-# Công việc BE và danh sách API cần cung cấp
+# Bàn giao API Backend và kế hoạch còn lại
 
-Ngày đối chiếu: 25/09/2026. Tài liệu dành cho nhóm BE.
+Ngày đối chiếu: 30/09/2026. Tài liệu dành cho nhóm BE và FE.
 
-- **Cần cho chức năng hiện tại (mục 4–8):** SCMS-1, 2, 3, 9, 11, 15 và các chức năng phụ thuộc đã có giao diện. FE hiện dùng mock, chưa gọi các endpoint đề xuất.
-- **Có thể dùng trong tương lai (mục 9):** API cho các chức năng mở rộng đã nêu trong mô tả dự án; chưa bắt buộc triển khai trong phạm vi 6 mục trên.
-- **FE giữ nguyên:** chỉ xem xét kết nối sau khi BE bàn giao API chính thức. Tài liệu này không giao công việc sửa FE.
+- **Đã triển khai và nối FE:** UC5, UC6, UC10, UC13, UC14 của Long.
+- **Có thể dùng trong tương lai (mục 9):** API cho các chức năng mở rộng đã nêu trong mô tả dự án; chưa bắt buộc triển khai trong phạm vi 5 use case trên.
+- **Phần còn lại:** các mục đề xuất ngoài phạm vi Long vẫn giữ để chủ use case tiếp tục chốt.
 
-Đây là contract đề xuất dựa trên mã nguồn hiện tại, chưa phải các endpoint đã triển khai. Phần 2 ghi riêng API thực sự tìm thấy trong source BE. Chưa kiểm thử HTTP hoặc database BE đang chạy. Không thay đổi file Excel hay code ứng dụng trong lần phân tích này.
+Các contract trong mục 0 dưới đây đã được kiểm thử HTTP với SQL Server từ file `SportsCenterManagement_Full.sql`. Chúng trả DTO trực tiếp, không bọc `data`.
+
+## 0. Contract Long Sprint 1 đã triển khai
+
+### UC5 - Xác thực, phiên và RBAC
+
+| Endpoint | Request | Response thành công | Quyền |
+| --- | --- | --- | --- |
+| `POST /api/Auth/login` | `email`, `password` | `accessToken`, `tokenType`, `expiresAtUtc`, `accountId`, `email`, `role`, `fullName`, `createdAt` | Public |
+| `POST /api/Auth/check-token` | Bearer token, không body | `accountId`, `email`, `role`, `fullName`, `createdAt` | Đã đăng nhập |
+| `POST /api/Auth/Logout` | Bearer token, không body | `200 OK`, body rỗng | Đã đăng nhập |
+
+Role BE là `CenterManager`, `Coach`, `Member`, `Receptionist`; FE ánh xạ sang enum uppercase. Login reset số lần sai khi thành công, từ chối tài khoản inactive/locked/deleted. Logout đưa `jti` vào `IMemoryCache` tới khi token hết hạn; bộ lọc chung từ chối token đã thu hồi trên mọi endpoint `[Authorize]`. CORS lấy từ `Cors:AllowedOrigins`; development cho phép `http://localhost:5173`.
+
+### UC6 - Quản lý thành viên
+
+| Endpoint | Request/query | Response thành công | Quyền |
+| --- | --- | --- | --- |
+| `GET /api/Member` | `page`, `pageSize`, `search?`, `status?` (`Active`/`Inactive`) | `items`, `page`, `pageSize`, `totalItems`, `totalPages`; mỗi item có `accountId`, `memberCode`, `fullName`, `email`, `phone`, `status`, `dateOfBirth`, `createdAt` | CenterManager |
+| `POST /api/Member` | `fullName`, `email`, `phone`, `dateOfBirth`, `isActive` | `member` (`MemberDetail`) và `initialPassword` | CenterManager |
+| `GET /api/Member/{accountId}` | Route ID | `accountId`, `memberCode`, `fullName`, `dateOfBirth`, `avatarUrl`, `email`, `phone`, `status`, `createdAt`, `updatedAt` | CenterManager |
+| `PATCH /api/Member/{accountId}` | `fullName`, `email`, `phone`, `dateOfBirth`, `isActive` | `MemberDetail` | CenterManager |
+| `DELETE /api/Member/{accountId}` | Route ID | `204 No Content`; đặt `Status=Inactive`, `DeletedAt=UtcNow` | CenterManager |
+
+### UC10 - Danh mục gói công khai
+
+`GET /api/MembershipPackage/active` cho phép anonymous và trả mảng `{ id: number, name, price, durationMonths, benefits[] }`; chỉ có gói `IsActive=true`.
+
+### UC13 - Đăng ký thành viên tại quầy
+
+`POST /api/Member/counter-registration` cho `Receptionist` hoặc `CenterManager`.
+
+Request: `fullName`, `email`, `phone`, `dateOfBirth`, `packageId` (số nguyên), `expectedPrice`, `paymentMethod`.
+
+Response `201 Created`:
+
+- `member`: toàn bộ `MemberDetail`.
+- `receipt`: `invoiceId`, `invoiceNumber`, `amount`, `paymentMethod`, `invoiceStatus`, `createdAt`, `paidAt`, `paidByStaffId`, `paidByStaffName`, `subscriptionId`, `subscriptionStatus`, `kind`, `startDate`, `endDate`, `packageId`, `packageName`, `packagePrice`, `durationMonths`, `benefits`, `memberAccountId`, `memberCode`, `memberFullName`, `memberEmail`, `memberPhone`.
+- `initialPassword`: chỉ trả một lần, không trả `passwordHash`.
+- `emailDelivery`: `SENT`, `FAILED`, hoặc `NOT_CONFIGURED`.
+
+Account, Member, pending Subscription và pending Invoice được commit trong một transaction. Email gửi sau commit; lỗi email không rollback dữ liệu.
+
+### UC14 - Trạng thái hội viên
+
+`GET /api/Member/membership-status?search=&filter=ALL` cho `Receptionist` hoặc `CenterManager`. Filter hợp lệ: `ALL`, `ACTIVE`, `EXPIRING`, `EXPIRED`, `SUSPENDED`, `UPCOMING`, `PENDING_PAYMENT`, `NONE`.
+
+Mỗi dòng trả `accountId`, `memberCode`, `fullName`, `email`, `phone`, `status`, `remainingDays`, `expiringSoon`, `subscriptionId`, `packageId`, `packageName`, `startDate`, `endDate`, `suspensionReason`, `upcomingSubscriptionId`, `upcomingPackageName`, `upcomingStartDate`, `upcomingEndDate`. Ngày và trạng thái do server tính theo `BusinessSettings:TimeZoneId`; FE không tính lại.
 
 ## 1. Chức năng hiện tại BE cần hỗ trợ
 
@@ -21,31 +68,17 @@ Các yêu cầu đã bổ sung sau file sprint và đang có trong FE:
 
 ## 2. API BE hiện có và điểm chưa khớp
 
-Đã đọc source ở `D:/SWP/SportsCenterManagement`.
+Đã đối chiếu source và chạy HTTP smoke trên `E:/SWP391/SportsCenterManagement`.
 
-| API tìm thấy | Hiện trạng | Việc cần làm để nối FE |
+| Phạm vi | Hiện trạng ngày 30/09/2026 | Việc còn lại |
 | --- | --- | --- |
-| `POST /api/Account/Create_member` | Nhận Email, Password, FullName, Phone, MemberCode; có DateOfBirth/AvatarUrl tùy chọn. Trả chuỗi thông báo | FE public không có Phone/MemberCode, FullName tùy chọn và có Username. BE cần DTO đăng ký public và dữ liệu Username phù hợp các đầu vào này. MemberCode nên do BE sinh. Trả user và phiên đăng nhập để giữ hành vi tự đăng nhập sau đăng ký |
-| `POST /api/Auth/Login_center_manager` | Login riêng Manager, trả chuỗi JWT | Cần login chung bằng email/password vì FE không chọn role |
-| `POST /api/Auth/Login_coach` | Login riêng Coach, trả chuỗi JWT | Dùng chung service xác thực, trả role và user |
-| `POST /api/Auth/Login_member` | Login riêng Member, trả chuỗi JWT | Như trên |
-| `POST /api/Auth/Login_receptionist` | Login riêng Receptionist, trả chuỗi JWT | Như trên |
-| `POST /api/Auth/Logout` | Đưa token vào IMemoryCache trong 60 phút, trả OK | Thời gian thu hồi phải tới lúc token hết hạn; kiểm tra thu hồi trên mọi API bảo vệ, không chỉ check-token |
-| `POST /api/Auth/check-token` | Trả AccountId, Email, Role; có AuthFilter | Chưa đủ fullName/username và thông tin user FE dùng. Bổ sung `/api/auth/me` hoặc mở rộng response này |
+| UC5 | Login chung, check-token, logout/revocation, inactive/deleted filter và CORS đã triển khai; JWT 24 giờ | `IMemoryCache` blacklist chỉ phù hợp một instance; đổi distributed store khi scale |
+| UC6 | Member list/search/filter/create/update/detail/soft-delete đã triển khai tại `/api/Member` | Không có việc còn lại trong Sprint 1 của Long |
+| UC10 | Anonymous `GET /api/MembershipPackage/active` đã triển khai và nối FE | Quản lý package UC9 do chủ use case tiếp tục xác nhận |
+| UC13 | Counter registration transaction + receipt + one-time password + email outcome đã triển khai | Cấu hình SMTP theo môi trường nếu muốn `emailDelivery=SENT` |
+| UC14 | Server-derived status/filter/remaining days/suspension/upcoming đã triển khai | Chính sách suspend/resume là use case riêng nếu nhóm bổ sung thao tác |
 
-Các điểm cụ thể cần sửa:
-
-1. `JwtOptions` và `appsettings.json` đang đặt 60 phút; sprint và FE dùng 24 giờ. Thống nhất thành 1440 phút nếu giữ yêu cầu hiện tại. BE công bố rõ `exp`/`iat` theo giây và trả `expiresAt` dạng ISO-8601.
-2. BE đã dùng BCrypt và đếm sai tới 5 lần để khóa, nhưng các nhánh login thành công hiện chưa reset `FailedLoginCount`. FE cần lỗi có `isLocked`, `failedAttemptsRemaining`, thay vì mọi trường hợp cùng trả BadRequest chuỗi.
-3. Login chung phải tự xác định role từ DB; không gọi thử lần lượt 4 endpoint vì vừa sai luồng vừa có thể tác động bộ đếm đăng nhập.
-4. Role BE là `CenterManager`, `Coach`, `Member`, `Receptionist`; FE dùng `CENTER_MANAGER`, `COACH`, `MEMBER`, `RECEPTIONIST`. BE cần công bố enum role chính thức; đề xuất trả các giá trị uppercase trên trong DTO.
-5. `Account` chưa có Username. Cần thêm cột/unique index nếu giữ form hiện tại. Tách DTO đăng ký public khỏi DTO hồ sơ đầy đủ; không điền Phone/MemberCode giả để vượt validation.
-6. Các action tạo Manager/Coach/Receptionist trong `AccountController` hiện chưa có `[Authorize]`; `Program.cs` không cấu hình fallback policy. Phải bảo vệ trước khi dùng thực tế, public chỉ được tạo MEMBER.
-7. AuthFilter kiểm tra blacklist mới gắn vào `check-token`; chuyển kiểm tra token bị thu hồi vào pipeline chung. IMemoryCache mất khi restart và không chia sẻ giữa nhiều instance: dùng kho phiên/blacklist bền vững hoặc distributed cache phù hợp triển khai.
-8. `Program.cs` chưa có AddCors/UseCors. Cần cho phép origin FE cấu hình, gồm origin dev đang dùng; signing key chỉ nằm trong cấu hình bí mật phía server.
-9. Trong các controller/entities đã kiểm tra, chưa có MembershipPackage, Subscription, Invoice hoặc API thu tiền. Đây là phần cần xây mới.
-
-Nguồn BE: `SportsCenterManagement/Controllers/AuthController.cs`, `AccountController.cs`, `Program.cs`; `Services/AuthService/AuthService.cs`, `Services/AccessTokenService/AccessTokenService.cs`, `Services/Utils/JwtOptions.cs`, `Services/PasswordHashService/PasswordHashService.cs`; `APIViewModel/Member/CreateMemberAPIViewModel.cs`; `DataAccess/Entities/Account.cs`, `Member.cs`.
+Nguồn kiểm tra chính: `AuthController`, `MemberController`, `MembershipPackageController`, các service tương ứng, 70 test BE và `scripts/smoke-long-sprint1.ps1`.
 
 ## 3. Quy ước contract đề xuất
 
@@ -73,34 +106,16 @@ Mã HTTP: 401 sai thông tin/hết phiên; 403 thiếu quyền; 404 không tìm 
 
 ## 4. SCMS-1, 2, 3: xác thực
 
-| API đề xuất | Request | Response data | Quyền |
+| API hiện dùng | Request | Response data | Quyền |
 | --- | --- | --- | --- |
-| `POST /api/auth/register` | `username, email, password, fullName?` | `AuthSession` | Public; BE luôn gán MEMBER |
-| `POST /api/auth/login` | `email, password, rememberMe` | `AuthSession` | Public |
-| `GET /api/auth/me` | Không body | `PublicUser` | Đã đăng nhập, token còn hiệu lực/chưa thu hồi |
-| `POST /api/auth/logout` | Bearer token, không body | 204 | Phiên hiện tại |
+| `POST /api/Account/Register_member` | DTO đăng ký public hiện tại | Tạo Member; FE gọi login sau đó để giữ auto-login | Public |
+| `POST /api/Auth/login` | `email, password` | Auth session trực tiếp như mục 0 | Public |
+| `POST /api/Auth/check-token` | Không body | Account session trực tiếp như mục 0 | Đã đăng nhập, token còn hiệu lực/chưa thu hồi |
+| `POST /api/Auth/Logout` | Bearer token, không body | `200 OK` | Phiên hiện tại |
 
 `confirmPassword` hiện được FE dùng để kiểm tra nhập lại; không cần lưu DB hoặc gửi sang BE nếu contract chỉ nhận password. BE vẫn kiểm tra chính password. Public register tạo account + member profile nguyên tử; email trim/lowercase, email và username duy nhất không phân biệt hoa thường. Giữ validation FE: username tối thiểu 3 ký tự, password tối thiểu 8 ký tự/tối đa 72 byte UTF-8 theo giới hạn đang áp dụng với BCrypt; fullName trống dùng username.
 
-```json
-{
-  "data": {
-    "token": "<jwt>",
-    "expiresAt": "2026-09-26T03:00:00Z",
-    "user": {
-      "id": "account-member-123",
-      "username": "minh_member",
-      "email": "minh@example.com",
-      "fullName": "Nguyễn Minh",
-      "role": "MEMBER",
-      "isLocked": false,
-      "createdAt": "2026-09-25T03:00:00Z"
-    }
-  }
-}
-```
-
-PublicUser còn có `phone?`, `dateOfBirth?`, `avatar?`; tuyệt đối không trả password/passwordHash. Không cần trả bộ đếm đăng nhập trong PublicUser; lỗi login trả số lần thử còn lại. `rememberMe` quyết định cách lưu phiên trên FE; nếu theo sprint thì cả hai lựa chọn vẫn có hạn tối đa 24 giờ. Chưa cần refresh-token để đáp ứng phạm vi này.
+Auth session tuyệt đối không trả password/passwordHash. `rememberMe` chỉ quyết định FE lưu session ở `localStorage` hay `sessionStorage`; thời hạn JWT vẫn do BE phát hành.
 
 Logout phải thu hồi token ở BE tới hết hạn của token. Sau khi logout thành công, mọi API bảo vệ phải từ chối token đó. Việc xóa phiên cục bộ không thay thế trách nhiệm thu hồi phía server.
 
@@ -131,7 +146,7 @@ Validation theo service hiện tại: name trim, 2–80 ký tự, không trùng 
 
 Xóa bị chặn khi có bất kỳ subscription hoặc invoice tham chiếu, không chỉ khi gói đang active. Ẩn gói chỉ chặn yêu cầu mới; không sửa lịch sử đã mua. Sửa tên/giá/quyền lợi không thay đổi snapshot trên hóa đơn cũ.
 
-Excel SCMS-10 yêu cầu danh mục public; FE hiện bảo vệ màn hình chọn gói bằng đăng nhập. Endpoint active có thể cho phép anonymous khi nhóm triển khai SCMS-10, nhưng không mở dữ liệu quản trị/ẩn gói ra public.
+UC10 đã dùng anonymous `GET /api/MembershipPackage/active`; endpoint chỉ trả `id`, `name`, `price`, `durationMonths`, `benefits` của gói active, không lộ dữ liệu quản trị.
 
 ## 6. SCMS-11 và SCMS-15: chọn thành viên, báo giá, đăng ký
 
@@ -200,7 +215,7 @@ Ví dụ response báo giá minh họa: kỳ cũ 01/09/2026–30/09/2026, lập 
 | `GET /api/invoices?memberId=&status=&paymentMethod=&search=&page=1&pageSize=20` | Bộ lọc, riêng trang thu tiền dùng CASH/PENDING_PAYMENT | Danh sách Invoice | Member chỉ của mình; staff theo quyền |
 | `GET /api/invoices/{id}` | ID | Invoice đầy đủ để xem/in | Chủ sở hữu hoặc staff |
 | `POST /api/invoices/{id}/confirm-cash` | `{ "receivedAmount": 3975000 }` + Idempotency-Key | `{ subscription, invoice }` | Receptionist, Center Manager |
-| `POST /api/members/counter-registration` | CounterRegistrationInput bên dưới | `{ member, order: { subscription, invoice } }` | Receptionist, Center Manager |
+| `POST /api/Member/counter-registration` | Contract UC13 bên dưới | `{ member, receipt, initialPassword, emailDelivery }` | Receptionist, Center Manager |
 
 Thu tiền phải kiểm tra CASH, invoice và subscription còn pending, người thu hợp lệ, Member không khóa, số tiền nguyên đúng invoice.amount, báo giá nâng gói chưa cũ và kỳ không trùng. Ghi `paidAt, paidBy, paidByName` từ server. Transaction gồm invoice PAID + subscription CONFIRMED + thay thế kỳ cũ nếu có. Dùng khóa/version để hai lễ tân không thu cùng một hóa đơn hai lần. Retry cùng Idempotency-Key trả kết quả trước; request mới cho hóa đơn đã trả trả 409 `INVOICE_ALREADY_PROCESSED`.
 
@@ -208,32 +223,31 @@ FE đang in bằng `window.print()`/Save as PDF, nên API file PDF chưa bắt b
 
 `BANK_TRANSFER` và `CARD` hiện chỉ ghi nhận phương thức dự kiến, chưa có luồng kích hoạt/đối soát. Không cho endpoint tiền mặt xác nhận hai phương thức này. Tích hợp cổng thanh toán/webhook là công việc riêng, không coi chọn phương thức là đã trả tiền.
 
-CounterRegistrationInput để giữ FE hiện tại:
+Counter registration đã triển khai:
 
 ```json
 {
   "fullName": "Nguyễn Minh",
   "email": "minh@example.com",
   "phone": "0901234567",
-  "username": "minh_member",
-  "password": "<mat-khau-khoi-tao>",
-  "packageId": "pkg-monthly",
+  "dateOfBirth": "2000-01-02",
+  "packageId": 11,
   "paymentMethod": "CASH",
-  "expectedPrice": 450000
+  "expectedPrice": 500000
 }
 ```
 
-Tạo account + profile + pending subscription + invoice phải cùng transaction; lỗi bất kỳ bước nào rollback toàn bộ, giữ phiên nhân viên hiện tại. MemberCode do BE sinh. expectedPrice chỉ để phát hiện thay đổi, giá thực lấy từ DB; nếu không khớp trả 409 trước khi tạo tài khoản.
+Tạo account + profile + pending subscription + invoice cùng transaction; lỗi bất kỳ bước nào trước commit rollback toàn bộ, giữ phiên nhân viên hiện tại. `MemberCode` và mật khẩu do BE sinh. `expectedPrice` chỉ để phát hiện thay đổi, giá thực lấy từ DB; nếu không khớp trả 409 trước khi tạo tài khoản.
 
-Validation hiện tại: fullName 2–80 ký tự; email hợp lệ tối đa 254; username 3–30 ký tự chữ/số/gạch dưới; phone sau bỏ dấu cách/chấm/gạch ngang là 10 chữ số bắt đầu 0 hoặc +84 theo sau 9 số; password 8 ký tự–72 byte; gói bắt buộc và active. Cả email/username duy nhất.
+Validation hiện tại: `fullName` 2–100 ký tự; email hợp lệ tối đa 150; phone đúng `0` + 9 chữ số; `dateOfBirth` bắt buộc; `packageId` là số nguyên dương; `expectedPrice` từ 1 đến 1.000.000.000; payment method tối đa 30 ký tự và phải hợp lệ. Email/phone không được trùng, gói phải active.
 
-Khác Excel SCMS-13: file yêu cầu ngày sinh, BE tự sinh mật khẩu và gửi email; FE hiện yêu cầu nhân viên nhập username/password, chưa có ngày sinh và không gửi email. Contract trên giữ FE hiện tại. Nếu triển khai đầy đủ SCMS-13 nguyên bản, BE cần contract riêng cho ngày sinh, cơ chế cấp mật khẩu ban đầu an toàn và email service. Đây là phần mở rộng cần chốt trước khi triển khai, chưa nằm trong luồng hiện tại.
+Sau commit, EmailService thử gửi thông tin khởi tạo và trả `SENT`, `FAILED` hoặc `NOT_CONFIGURED`; không trả `passwordHash` và không rollback database khi email lỗi.
 
 ## 8. DTO và bảng dữ liệu cần có
 
 | DTO/bảng | Dữ liệu cần lưu/trả |
 | --- | --- |
-| Account/Member | ID, username, email, passwordHash chỉ nội bộ, role, fullName, phone, memberCode, isLocked, failedLoginCount, createdAt, updatedAt; ngày sinh/avatar nếu dùng |
+| Account/Member | accountId, email, passwordHash chỉ nội bộ, role, status, deletedAt, isLocked, failedLoginCount, fullName, phone, memberCode, dateOfBirth, avatarUrl, createdAt, updatedAt |
 | MembershipPackage | id, name, price, durationMonths, benefits, isActive, createdAt, updatedAt, version |
 | MemberSubscription | id, memberId, packageId, packageName snapshot, durationMonths snapshot, benefits snapshot, amount thực trả, packagePrice tổng giá snapshot, startDate, endDate, kind, status, invoiceId, previousSubscriptionId?, replacedOn?, createdAt |
 | MembershipInvoice | id, number duy nhất, subscriptionId, toàn bộ trường Quote, status, createdAt, createdBy, paidAt?, paidBy?, paidByName?, canceledAt?, canceledBy? |
@@ -243,7 +257,7 @@ Khác Excel SCMS-13: file yêu cầu ngày sinh, BE tự sinh mật khẩu và g
 
 `Subscription.status`: PENDING_PAYMENT / CONFIRMED / CANCELED. `Invoice.status`: PENDING_PAYMENT / PAID / CANCELED. Đừng dùng một enum chung cho cả hai.
 
-Trạng thái hiển thị được suy ra theo thứ tự hiện tại: canceled → pending → replacedOn đã tới → startDate tương lai (SCHEDULED_DOWNGRADE nếu DOWNGRADE, còn lại UPCOMING) → hết hạn → ACTIVE. BE nên trả thêm `displayStatus` theo ngày server để tránh lệch đồng hồ client. `SUSPENDED` của SCMS-14 chưa có luồng trong FE này, cần làm riêng nếu dùng.
+UC14 đã trả trạng thái hiển thị theo ngày server: `ACTIVE`, `SUSPENDED`, `UPCOMING`, `EXPIRED`, `PENDING_PAYMENT`, `NONE`; filter `EXPIRING` dùng `remainingDays` từ 1 đến 6. Response còn có kỳ hiện tại/chọn gần nhất, lý do suspension và kỳ sắp tới. FE dùng trực tiếp, không suy lại ngày.
 
 Ràng buộc DB: unique email/username/memberCode/invoice number; foreign key; không cascade-delete lịch sử tài chính; unique pending theo Member hoặc cơ chế khóa tương đương; transaction/row version cho quote/order/payment; kiểm tra chồng kỳ trong transaction. Audit ghi tạo/sửa/ẩn/xóa gói, tạo/hủy đơn, thu tiền và người thực hiện, nhưng API xem audit log thuộc SCMS-16.
 
@@ -259,7 +273,7 @@ Các đường dẫn sau là đề xuất định hướng theo mô tả dự á
 | Mở khóa và phân quyền | POST /api/accounts/{id}/unlock; GET /api/roles; PATCH /api/accounts/{id}/role | Mở khóa đăng nhập, reset bộ đếm; kiểm tra quyền cấp role, bảo vệ Manager cuối cùng, cập nhật hiệu lực phiên khi đổi quyền | Manager |
 | Huấn luyện viên và nhân viên | GET/POST /api/coaches; GET/PATCH/DELETE /api/coaches/{id}; GET/POST /api/staff; GET/PATCH/DELETE /api/staff/{id} | Hồ sơ, chuyên môn, bộ môn, ca làm/lịch làm; chặn xóa khi còn tham chiếu cần bảo toàn | Manager |
 | Danh mục và chi tiết gói | GET /api/membership-packages/{id}; GET /api/public/membership-packages | Xem/so sánh gói active, quyền lợi, tổng giá, kỳ hạn; không trả dữ liệu quản trị | Public nếu triển khai SCMS-10 |
-| Trạng thái/bảo lưu gói | GET /api/members/{id}/membership-status; POST /api/membership-subscriptions/{id}/suspend; POST /api/membership-subscriptions/{id}/resume | Gói hiện tại, số ngày còn lại, cảnh báo dưới 7 ngày; chính sách bảo lưu/phí/ngày hết hạn phải chốt riêng | Member xem chính mình; staff theo quyền; quyền bảo lưu cần chốt |
+| Bảo lưu/khôi phục gói | POST /api/membership-subscriptions/{id}/suspend; POST /api/membership-subscriptions/{id}/resume | UC14 đã đọc được trạng thái suspension; thao tác và chính sách bảo lưu/phí/ngày hết hạn vẫn cần chốt riêng | Quyền bảo lưu cần chốt |
 | PDF hóa đơn | GET /api/invoices/{id}/pdf | PDF từ dữ liệu hóa đơn đã lưu, trả application/pdf; kiểm tra quyền sở hữu | Chủ hóa đơn, Receptionist, Manager |
 | Thanh toán trực tuyến | POST /api/payments; GET /api/payments/{id}; POST /api/payments/webhooks/{provider} | Tạo giao dịch từ invoice, trạng thái đối soát, xác minh webhook, chống callback trùng; chỉ kích hoạt sau xác nhận đáng tin cậy | Chủ hóa đơn/staff; webhook xác thực theo nhà cung cấp |
 | Bộ môn và phòng tập | GET/POST /api/sports; PATCH/DELETE /api/sports/{id}; GET/POST /api/rooms; PATCH/DELETE /api/rooms/{id} | Bộ môn, sức chứa, tình trạng phòng và liên kết lớp học | Manager ghi; người dùng liên quan được xem |
@@ -277,14 +291,13 @@ Các đường dẫn sau là đề xuất định hướng theo mô tả dự á
 
 Các nhóm tương lai cần thiết kế thêm bảng và migration khi chốt chức năng. API AI không tự thay đổi đăng ký, thanh toán hoặc kế hoạch tập chính thức nếu chưa có thao tác xác nhận tương ứng. API refresh token chỉ bổ sung nếu nhóm đổi sang mô hình access token ngắn hạn + refresh token; không bắt buộc cho yêu cầu JWT 24 giờ hiện tại.
 
-## 10. Thứ tự BE triển khai và bàn giao
+## 10. Thứ tự BE còn lại và bàn giao
 
-1. Chốt DTO đăng ký, username/memberCode, role mapping, envelope lỗi và login chung. BE giao Swagger/OpenAPI cùng base URL, CORS, tài khoản test 4 role và database migration/seed.
-2. Hoàn thiện và kiểm thử register/login/me/logout; kiểm tra khóa sau 5 lần sai liên tiếp, đăng nhập đúng reset bộ đếm, token 24h và token logout không gọi được bất kỳ API bảo vệ nào.
-3. Xây dựng và kiểm thử danh mục, CRUD/ẩn gói; Member không thấy gói ẩn; xóa gói có lịch sử bị chặn; sửa giá không sửa invoice cũ.
-4. Xây dựng báo giá/tạo đơn/lịch sử/hóa đơn; kiểm tra gia hạn còn hạn, hết hạn, cuối tháng/năm nhuận, ngày cuối kỳ và nâng gói năm theo khấu trừ.
-5. Xây dựng transaction tại quầy và thu tiền; kiểm tra lỗi rollback, Member không thu được tiền, 2 request đồng thời không thu trùng, pending không có quyền tập, báo giá qua ngày bị chặn.
+1. UC5, UC6, UC10, UC13, UC14 đã hoàn tất contract, test và FE wiring; dùng mục 0 làm nguồn bàn giao.
+2. Chủ UC1/UC4/UC7/UC8/UC9/UC11/UC12/UC15/UC16 tiếp tục chốt các contract còn lại, tránh đổi các route Long đang dùng nếu không có migration plan.
+3. Hoàn thiện báo giá/tạo đơn/lịch sử/hóa đơn và thu tiền; kiểm tra gia hạn, cuối tháng/năm nhuận, concurrency và idempotency.
+4. Khi triển khai nhiều instance, chuyển token blacklist khỏi `IMemoryCache`; cấu hình CORS, connection string, JWT signing key và SMTP qua môi trường/secret store.
 
-Các test FE hiện có trong `src/services/authService.test.ts` và `src/services/membershipService.test.ts` là nguồn ca nghiệm thu nghiệp vụ cho BE; không thay thế integration test HTTP/DB của BE.
+Nguồn nghiệm thu hiện tại gồm 70 test BE, 98 test FE, `scripts/import-sportscenter-database.ps1` và `scripts/smoke-long-sprint1.ps1`; smoke đã xác minh login, public package, member CRUD/soft delete, counter registration, membership status, logout và revoked-token rejection.
 
 BE bàn giao API chính thức kèm Swagger/OpenAPI, request/response mẫu, bảng mã lỗi, phân quyền từng endpoint, cách chạy/migration/seed, base URL và tài khoản kiểm thử. Ưu tiên hoàn thành các API phục vụ chức năng hiện tại; mục 9 là danh sách mở rộng để lập kế hoạch sau.

@@ -92,7 +92,9 @@ public class AuthController : ControllerBase
                 ExpiresAtUtc = tokenMeta.ExpiresAtUtc,
                 AccountId = account.Id,
                 Email = account.Email,
-                Role = account.Role
+                Role = account.Role,
+                FullName = account.FullName,
+                CreatedAt = account.CreatedAt
             };
 
             return Ok(session);
@@ -170,7 +172,6 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
-    [TypeFilter(typeof(AuthFilter))]
     [HttpPost("Logout")]
     public IActionResult Logout()
     {
@@ -184,7 +185,6 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
-    [TypeFilter(typeof(AuthFilter))]
     [HttpPost("request-change-password-otp")]
     public async Task<IActionResult> RequestChangePasswordOtpAsync()
     {
@@ -244,7 +244,6 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
-    [TypeFilter(typeof(AuthFilter))]
     [HttpPut("change-password")]
     public async Task<IActionResult> ChangePasswordWithOtpAsync(
         ChangePasswordWithOtpRequestAPIViewModel request)
@@ -405,25 +404,31 @@ public class AuthController : ControllerBase
 
     [HttpPost("check-token")]
     [Authorize]
-    [TypeFilter(typeof(AuthFilter))]
-    public ActionResult<CheckTokenResponse> CheckToken()
+    public async Task<ActionResult<CheckTokenResponse>> CheckToken()
     {
         string? accountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        string? email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
-        string? role = User.FindFirstValue(ClaimTypes.Role);
 
-        if (string.IsNullOrWhiteSpace(accountId) ||
-            string.IsNullOrWhiteSpace(email) ||
-            string.IsNullOrWhiteSpace(role))
+        if (string.IsNullOrWhiteSpace(accountId))
         {
             return Unauthorized(new { message = "The access token does not contain the required claims." });
         }
 
+        LoginResponseAPIViewModel? account =
+            await _authService.GetSessionAccountAsync(accountId);
+        if (account is null)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, CreateError(
+                "ACCOUNT_INACTIVE",
+                "This account is not active."));
+        }
+
         return Ok(new CheckTokenResponse
         {
-            AccountId = accountId,
-            Email = email,
-            Role = role
+            AccountId = account.Id,
+            Email = account.Email,
+            Role = account.Role,
+            FullName = account.FullName,
+            CreatedAt = account.CreatedAt
         });
     }
 

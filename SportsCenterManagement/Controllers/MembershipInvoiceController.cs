@@ -5,14 +5,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Services.MembershipInvoiceService;
-using SportsCenterManagement.Filter;
 
 namespace SportsCenterManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(Roles = "Receptionist,CenterManager")]
-[TypeFilter(typeof(AuthFilter))]
 public class MembershipInvoiceController : ControllerBase
 {
     private readonly IMembershipInvoiceService _invoiceService;

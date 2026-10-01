@@ -16,7 +16,6 @@ namespace SportsCenterManagement.Filter
         private readonly IMemoryCache _cache;
         private readonly SportsCenterManagementContext _context;
 
-
         public AuthFilter(
             IMemoryCache cache,
             SportsCenterManagementContext context)
@@ -35,6 +34,12 @@ namespace SportsCenterManagement.Filter
                 endpoint?.Metadata.GetMetadata<IAllowAnonymous>();
 
             if (allowAnonymous is not null)
+            {
+                await next();
+                return;
+            }
+
+            if (context.HttpContext.User.Identity?.IsAuthenticated != true)
             {
                 await next();
                 return;
@@ -116,7 +121,8 @@ namespace SportsCenterManagement.Filter
                 return;
             }
 
-            if (!string.Equals(account.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            if (account.DeletedAt is not null ||
+                !string.Equals(account.Status, "Active", StringComparison.OrdinalIgnoreCase))
             {
                 context.Result = CreateErrorResult(
                     context,
