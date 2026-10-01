@@ -63,6 +63,25 @@ public class AuthenticationIntegrationTests
     }
 
     [Fact]
+    public async Task Member_CannotAccessCounterRegistration()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        using HttpClient client = CreateAuthenticatedClient(
+            factory,
+            CreateToken(DateTime.UtcNow.AddMinutes(10)));
+        using StringContent content = new StringContent(
+            "{}",
+            Encoding.UTF8,
+            "application/json");
+
+        HttpResponseMessage response = await client.PostAsync(
+            "/api/Member/counter-registration",
+            content);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task NewApiProcess_DoesNotRetainInMemoryBlacklist()
     {
         string token = CreateToken(DateTime.UtcNow.AddMinutes(10));

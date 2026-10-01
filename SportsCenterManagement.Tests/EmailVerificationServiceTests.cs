@@ -98,6 +98,8 @@ public class EmailVerificationServiceTests
 
     private sealed class FakeEmailService : IEmailService
     {
+        public bool IsConfigured => true;
+
         public bool ShouldFail { get; set; }
 
         public string? LastCode { get; private set; }
@@ -120,6 +122,16 @@ public class EmailVerificationServiceTests
             return ShouldFail
                 ? Task.FromException(new InvalidOperationException("SMTP unavailable"))
                 : Task.CompletedTask;
+        }
+
+        public Task SendMemberWelcomeAsync(
+            string recipientEmail,
+            string fullName,
+            string initialPassword,
+            string packageName,
+            decimal amount)
+        {
+            return Task.CompletedTask;
         }
     }
 
