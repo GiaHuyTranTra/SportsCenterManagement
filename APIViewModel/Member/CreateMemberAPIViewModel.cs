@@ -16,6 +16,7 @@ public class CreateMemberAPIViewModel
     public string FullName { get; set; } = null!;
 
     [Required]
+    [RegularExpression(@"^0\d{9}$", ErrorMessage = "Phone must be a valid 10-digit number starting with 0.")]
     public string Phone { get; set; } = null!;
 
     [Required]
