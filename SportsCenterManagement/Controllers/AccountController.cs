@@ -225,6 +225,10 @@ namespace SportsCenterManagement.Controllers
         {
             if (ModelState.IsValid)
             {
+                if (await _account.IsPhoneExistsAsync(info.Phone))
+                {
+                    return Conflict(CreateError("PHONE_ALREADY_EXISTS", "Phone number already exists."));
+                }
                 bool isCreated = await _account.CreateCenterManagerAsync(info);
 
                 if (isCreated)
@@ -261,6 +265,10 @@ namespace SportsCenterManagement.Controllers
         {
             if (ModelState.IsValid)
             {
+                if (await _account.IsPhoneExistsAsync(info.Phone))
+                {
+                    return Conflict(CreateError("PHONE_ALREADY_EXISTS", "Phone number already exists."));
+                }
                 bool isCreated = await _account.CreateCoachAsync(info);
 
                 if (isCreated)
@@ -297,6 +305,10 @@ namespace SportsCenterManagement.Controllers
         {
             if (ModelState.IsValid)
             {
+                if (await _account.IsPhoneExistsAsync(info.Phone))
+                {
+                    return Conflict(CreateError("PHONE_ALREADY_EXISTS", "Phone number already exists."));
+                }
                 RegisterMemberResponseAPIViewModel? createdMember =
                     await _account.CreateMemberAsync(info);
 
@@ -334,6 +346,10 @@ namespace SportsCenterManagement.Controllers
         {
             if (ModelState.IsValid)
             {
+                if (await _account.IsPhoneExistsAsync(info.Phone))
+                {
+                    return Conflict(CreateError("PHONE_ALREADY_EXISTS", "Phone number already exists."));
+                }
                 bool isCreated = await _account.CreateReceptionistAsync(info);
 
                 if (isCreated)

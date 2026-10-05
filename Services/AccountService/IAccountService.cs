@@ -24,5 +24,7 @@ public interface IAccountService
 
     Task<bool> IsEmailExistsAsync(string email);
 
+    Task<bool> IsPhoneExistsAsync(string phone);
+
     Task<RegisterMemberResponseAPIViewModel?> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info);
 }

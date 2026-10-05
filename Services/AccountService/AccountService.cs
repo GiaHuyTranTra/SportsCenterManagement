@@ -407,6 +407,12 @@ public class AccountService : IAccountService
         return await _context.Accounts.AnyAsync(q => q.Email.ToLower() == normalizedEmail);
     }
 
+    public async Task<bool> IsPhoneExistsAsync(string phone)
+    {
+        string normalizedPhone = phone.Trim();
+        return await _context.Accounts.AnyAsync(q => q.Phone == normalizedPhone);
+    }
+
     public async Task<RegisterMemberResponseAPIViewModel?> RegisterMemberAsync(RegisterMemberRequestAPIViewModel info)
     {
         try
