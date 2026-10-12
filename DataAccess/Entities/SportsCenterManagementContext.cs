@@ -39,6 +39,10 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<Room> Rooms { get; set; }
 
+    public virtual DbSet<Class> Classes { get; set; }
+
+    public virtual DbSet<Sport> Sports { get; set; }
+
     public virtual DbSet<ClassSession> ClassSessions { get; set; }
 
     public virtual DbSet<ClassRegistration> ClassRegistrations { get; set; }
@@ -352,6 +356,52 @@ public partial class SportsCenterManagementContext : DbContext
             entity.Property(e => e.IsActive).HasDefaultValue(true);
         });
 
+        modelBuilder.Entity<Sport>(entity =>
+{
+    entity.ToTable("Sport");
+
+    entity.HasKey(e => e.Id);
+
+    entity.Property(e => e.Name)
+        .HasMaxLength(80)
+        .IsRequired();
+
+    entity.Property(e => e.CreatedAt)
+        .HasColumnType("datetime2");
+
+    entity.Property(e => e.UpdatedAt)
+        .HasColumnType("datetime2");
+});
+
+modelBuilder.Entity<Class>(entity =>
+{
+    entity.ToTable("Class");
+
+    entity.HasKey(e => e.Id);
+
+    entity.Property(e => e.Name)
+        .HasMaxLength(120)
+        .IsRequired();
+
+    entity.Property(e => e.Description)
+        .HasMaxLength(1000);
+
+    entity.Property(e => e.Status)
+        .HasMaxLength(20)
+        .IsUnicode(false)
+        .IsRequired();
+
+    entity.Property(e => e.CreatedAt)
+        .HasColumnType("datetime2");
+
+    entity.Property(e => e.UpdatedAt)
+        .HasColumnType("datetime2");
+
+    entity.HasOne(e => e.Sport)
+        .WithMany(s => s.Classes)
+        .HasForeignKey(e => e.SportId);
+});
+
         modelBuilder.Entity<ClassSession>(entity =>
         {
             entity.ToTable("ClassSession");
@@ -376,7 +426,9 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasMaxLength(400)
                 .IsUnicode(false);
             entity.Property(e => e.RowVersion).IsRowVersion();
-
+            entity.HasOne(d => d.Class)
+            .WithMany(c => c.ClassSessions)
+            .HasForeignKey(d => d.ClassId);
             entity.HasOne(d => d.Room).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.RoomId)
                 .OnDelete(DeleteBehavior.ClientSetNull)

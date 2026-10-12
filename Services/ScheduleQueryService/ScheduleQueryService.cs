@@ -196,9 +196,11 @@ public class ScheduleQueryService : IScheduleQueryService
         int? roomId,
         string? status)
     {
-        IQueryable<ClassSession> query = _context.ClassSessions
-            .AsNoTracking()
-            .Include(session => session.Room);
+       IQueryable<ClassSession> query = _context.ClassSessions
+        .AsNoTracking()
+        .Include(session => session.Room)
+        .Include(session => session.Class)
+        .ThenInclude(c => c.Sport);
 
         if (from.HasValue)
         {
@@ -286,6 +288,9 @@ public class ScheduleQueryService : IScheduleQueryService
         {
             Id = session.Id,
             ClassId = session.ClassId,
+            ClassName = session.Class?.Name ?? string.Empty,
+            SportId = session.Class?.SportId ?? 0,
+            SportName = session.Class?.Sport?.Name ?? string.Empty,
             CoachId = session.CoachId,
             CoachName = coachName ?? string.Empty,
             RoomId = session.RoomId,
