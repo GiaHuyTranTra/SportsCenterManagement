@@ -40,6 +40,8 @@ public partial class ClassSession
     public DateTime? UpdatedAt { get; set; }
 
     public byte[]? RowVersion { get; set; }
+    
+    public virtual Class Class { get; set; } = null!;
 
     public virtual Room Room { get; set; } = null!;
 
