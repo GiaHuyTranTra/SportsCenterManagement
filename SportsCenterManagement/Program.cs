@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using NSwag;
 using NSwag.Generation.Processors.Security;
 using Services.AccountService;
+using Services.ScheduleQueryService;
 using Services.AccessTokenService;
 using Services.AuditLogService;
 using Services.AuthService;
@@ -209,6 +210,7 @@ public class Program
         builder.Host.ConfigureContainer<ContainerBuilder>(containerBuilder =>
         {
             containerBuilder.RegisterType<AccountService>().As<IAccountService>();
+            containerBuilder.RegisterType<ScheduleQueryService>().As<IScheduleQueryService>();
             containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
             containerBuilder.RegisterType<CoachService>().As<ICoachService>();
