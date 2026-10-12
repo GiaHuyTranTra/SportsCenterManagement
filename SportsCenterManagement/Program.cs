@@ -16,6 +16,7 @@ using Services.AuthService;
 using Services.AvatarStorageService;
 using Services.EmailService;
 using Services.EmailVerificationService;
+using Services.Flow2PhucService;
 using Services.AuditLogService;
 using Services.CoachService;
 using Services.MemberService;
@@ -24,6 +25,7 @@ using Services.MembershipInvoiceService;
 using Services.MemberSubscriptionService;
 using Services.PasswordHashService;
 using Services.ReceptionistService;
+using Services.ScheduleQueryService;
 using Services.Utils;
 using SportsCenterManagement.Filter;
 using SportsCenterManagement.Middleware;
@@ -229,6 +231,8 @@ public class Program
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
             containerBuilder.RegisterType<AvatarStorageService>().As<IAvatarStorageService>();
+            containerBuilder.RegisterType<Flow2PhucService>().As<IFlow2PhucService>();
+            containerBuilder.RegisterType<ScheduleQueryService>().As<IScheduleQueryService>();
             containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 

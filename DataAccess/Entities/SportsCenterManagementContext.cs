@@ -37,6 +37,12 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<PasswordChangeOtp> PasswordChangeOtps { get; set; }
 
+    public virtual DbSet<Room> Rooms { get; set; }
+
+    public virtual DbSet<ClassSession> ClassSessions { get; set; }
+
+    public virtual DbSet<ClassRegistration> ClassRegistrations { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Account>(entity =>
@@ -334,6 +340,77 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasForeignKey(d => d.AccountId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PasswordChangeOtp_Account");
+        });
+
+        modelBuilder.Entity<Room>(entity =>
+        {
+            entity.ToTable("Room");
+
+            entity.Property(e => e.Name).HasMaxLength(80);
+            entity.Property(e => e.Location).HasMaxLength(120);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+        });
+
+        modelBuilder.Entity<ClassSession>(entity =>
+        {
+            entity.ToTable("ClassSession");
+
+            entity.Property(e => e.CoachId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.SessionDate).HasColumnType("date");
+            entity.Property(e => e.StartTime).HasColumnType("time(0)");
+            entity.Property(e => e.EndTime).HasColumnType("time(0)");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("SCHEDULED");
+            entity.Property(e => e.Notes).HasMaxLength(500);
+            entity.Property(e => e.CancelReason).HasMaxLength(500);
+            entity.Property(e => e.CanceledBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.RowVersion).IsRowVersion();
+
+            entity.HasOne(d => d.Room).WithMany(p => p.ClassSessions)
+                .HasForeignKey(d => d.RoomId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassSession_Room");
+        });
+
+        modelBuilder.Entity<ClassRegistration>(entity =>
+        {
+            entity.ToTable("ClassRegistration");
+
+            entity.Property(e => e.MemberId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("BOOKED");
+            entity.Property(e => e.RegisteredAt).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.RegisteredVia)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("MEMBER");
+            entity.Property(e => e.RegisteredBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.CanceledBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.CancelReason).HasMaxLength(500);
+
+            entity.HasOne(d => d.Session).WithMany(p => p.Registrations)
+                .HasForeignKey(d => d.SessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ClassRegistration_ClassSession");
         });
 
         OnModelCreatingPartial(modelBuilder);
