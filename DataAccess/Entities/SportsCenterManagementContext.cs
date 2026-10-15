@@ -15,6 +15,8 @@ public partial class SportsCenterManagementContext : DbContext
     {
     }
 
+    public virtual DbSet<ClassChangeEvent> ClassChangeEvents { get; set; }
+
     public virtual DbSet<Account> Accounts { get; set; }
 
     public virtual DbSet<AuditLog> AuditLogs { get; set; }
@@ -43,9 +45,15 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<Room> Rooms { get; set; }
 
+    public virtual DbSet<Class> Classes { get; set; }
+
     public virtual DbSet<ClassSession> ClassSessions { get; set; }
 
     public virtual DbSet<ClassRegistration> ClassRegistrations { get; set; }
+
+    public virtual DbSet<MembershipPackageSport> MembershipPackageSports { get; set; }
+
+    public virtual DbSet<Notification> Notifications { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -183,6 +191,11 @@ public partial class SportsCenterManagementContext : DbContext
 
         modelBuilder.Entity<Discipline>(entity =>
         {
+            entity.Property(item => item.NormalizedName).HasMaxLength(80);
+            if (Database.IsSqlServer()) entity.Property(item => item.NormalizedName).HasComputedColumnSql("CONVERT(nvarchar(80),dbo.NormalizeFlow2Name([Name]))", stored: true);
+            entity.Property(item => item.RowVersion).IsRowVersion();
+            entity.HasIndex(item => item.NormalizedName, "UQ_Discipline_NormalizedName")
+                .IsUnique();
             entity.ToTable("Discipline");
 
             entity.HasIndex(e => e.Name, "UQ_Discipline_Name").IsUnique();
@@ -389,17 +402,91 @@ public partial class SportsCenterManagementContext : DbContext
 
         modelBuilder.Entity<Room>(entity =>
         {
+            entity.Property(item => item.NormalizedName).HasMaxLength(80);
+            if (Database.IsSqlServer()) entity.Property(item => item.NormalizedName).HasComputedColumnSql("CONVERT(nvarchar(80),dbo.NormalizeFlow2Name([Name]))", stored: true);
+            entity.Property(item => item.RowVersion).IsRowVersion();
+            entity.HasIndex(item => item.NormalizedName, "UQ_Room_NormalizedName")
+                .IsUnique();
             entity.ToTable("Room");
+
+            entity.HasIndex(e => e.Name, "UQ_Room_Name").IsUnique();
 
             entity.Property(e => e.Name).HasMaxLength(80);
             entity.Property(e => e.Location).HasMaxLength(120);
+            entity.Property(e => e.RoomType).HasMaxLength(20);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
+        });
+
+        modelBuilder.Entity<MembershipPackageSport>(entity =>
+        {
+            entity.HasKey(e => new { e.PackageId, e.DisciplineId });
+
+            entity.ToTable("MembershipPackageSport");
+
+            entity.HasIndex(e => e.DisciplineId, "IX_MembershipPackageSport_DisciplineId");
+
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+
+            entity.HasOne(d => d.Package).WithMany(p => p.MembershipPackageSports)
+                .HasForeignKey(d => d.PackageId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MembershipPackageSport_Package");
+
+            entity.HasOne(d => d.Discipline).WithMany(p => p.MembershipPackageSports)
+                .HasForeignKey(d => d.DisciplineId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MembershipPackageSport_Discipline");
+        });
+
+        modelBuilder.Entity<Class>(entity =>
+        {
+            entity.Property(item => item.NormalizedName).HasMaxLength(100);
+            if (Database.IsSqlServer()) entity.Property(item => item.NormalizedName).HasComputedColumnSql("CONVERT(nvarchar(100),dbo.NormalizeFlow2Name([Name]))", stored: true);
+            entity.Property(item => item.RowVersion).IsRowVersion();
+            entity.HasIndex(item => item.NormalizedName, "UQ_Class_NormalizedName_Active")
+                .IsUnique().HasFilter("[Status] <> 'ARCHIVED'");
+            entity.ToTable("Class");
+
+            entity.HasIndex(e => e.Name, "UQ_Class_Name_Active")
+                .IsUnique()
+                .HasFilter("([Status]<>'ARCHIVED')");
+
+            entity.HasIndex(e => e.DisciplineId, "IX_Class_DisciplineId");
+
+            entity.Property(e => e.Name).HasMaxLength(100);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("DRAFT");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.Discipline).WithMany(p => p.Classes)
+                .HasForeignKey(d => d.DisciplineId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Class_Discipline");
+
+            entity.HasOne(d => d.CreatedByAccount).WithMany()
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Class_CreatedBy");
         });
 
         modelBuilder.Entity<ClassSession>(entity =>
         {
             entity.ToTable("ClassSession");
+
+            entity.HasIndex(e => new { e.RoomId, e.SessionDate, e.StartTime }, "IX_ClassSession_Date_Room")
+                .HasFilter("([Status]='SCHEDULED')");
+
+            entity.HasIndex(e => new { e.CoachId, e.SessionDate, e.StartTime }, "IX_ClassSession_Date_Coach")
+                .HasFilter("([Status]='SCHEDULED')");
+
+            entity.HasIndex(e => new { e.ClassId, e.SessionDate }, "IX_ClassSession_ClassId");
 
             entity.Property(e => e.CoachId)
                 .HasMaxLength(400)
@@ -407,6 +494,7 @@ public partial class SportsCenterManagementContext : DbContext
             entity.Property(e => e.SessionDate).HasColumnType("date");
             entity.Property(e => e.StartTime).HasColumnType("time(0)");
             entity.Property(e => e.EndTime).HasColumnType("time(0)");
+            entity.Property(e => e.BookedCount).HasDefaultValue(0);
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .IsUnicode(false)
@@ -422,15 +510,45 @@ public partial class SportsCenterManagementContext : DbContext
                 .IsUnicode(false);
             entity.Property(e => e.RowVersion).IsRowVersion();
 
+            entity.HasOne(d => d.Class).WithMany(p => p.ClassSessions)
+                .HasForeignKey(d => d.ClassId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassSession_Class");
+
+            entity.HasOne(d => d.Coach).WithMany(p => p.ClassSessions)
+                .HasForeignKey(d => d.CoachId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassSession_Coach");
+
             entity.HasOne(d => d.Room).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.RoomId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_ClassSession_Room");
+
+            entity.HasOne(d => d.CanceledByAccount).WithMany()
+                .HasForeignKey(d => d.CanceledBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassSession_CanceledBy");
+
+            entity.HasOne(d => d.CreatedByAccount).WithMany()
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassSession_CreatedBy");
         });
 
         modelBuilder.Entity<ClassRegistration>(entity =>
         {
+            entity.Property(item => item.RowVersion).IsRowVersion();
+            entity.HasOne<MemberSubscription>().WithMany().HasForeignKey(item => item.MemberSubscriptionId)
+                .OnDelete(DeleteBehavior.NoAction).HasConstraintName("FK_ClassRegistration_Subscription");
+            entity.HasIndex(item => new { item.SessionId, item.Status }, "IX_ClassRegistration_Session");
             entity.ToTable("ClassRegistration");
+
+            entity.HasIndex(e => new { e.SessionId, e.MemberId }, "UQ_ClassRegistration_ActiveBooking")
+                .IsUnique()
+                .HasFilter("([Status]='BOOKED')");
+
+            entity.HasIndex(e => new { e.MemberId, e.Status, e.SessionId }, "IX_ClassRegistration_Member");
 
             entity.Property(e => e.MemberId)
                 .HasMaxLength(400)
@@ -454,10 +572,72 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.HasOne(d => d.Session).WithMany(p => p.Registrations)
                 .HasForeignKey(d => d.SessionId)
-                .OnDelete(DeleteBehavior.Cascade)
+                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_ClassRegistration_ClassSession");
+
+            entity.HasOne(d => d.Member).WithMany(p => p.ClassRegistrations)
+                .HasForeignKey(d => d.MemberId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassRegistration_Member");
+
+            entity.HasOne(d => d.RegisteredByAccount).WithMany()
+                .HasForeignKey(d => d.RegisteredBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassRegistration_RegisteredBy");
+
+            entity.HasOne(d => d.CanceledByAccount).WithMany()
+                .HasForeignKey(d => d.CanceledBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ClassRegistration_CanceledBy");
         });
 
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.ToTable("Notification");
+
+            entity.HasIndex(item => new { item.EventId, item.RecipientId }, "UQ_Notification_EventRecipient")
+                .IsUnique().HasFilter("[EventId] IS NOT NULL");
+            entity.HasOne<ClassChangeEvent>().WithMany().HasForeignKey(item => item.EventId)
+                .OnDelete(DeleteBehavior.NoAction).HasConstraintName("FK_Notification_Event");
+
+            entity.HasIndex(e => new { e.RecipientId, e.ReadAt, e.CreatedAt }, "IX_Notification_Recipient_ReadAt").IsDescending(false, false, true);
+
+            entity.Property(e => e.RecipientId)
+                .HasMaxLength(400)
+                .IsUnicode(false);
+            entity.Property(e => e.Type)
+                .HasMaxLength(50)
+                .IsUnicode(false);
+            entity.Property(e => e.Title).HasMaxLength(200);
+            entity.Property(e => e.Body).HasMaxLength(1000);
+            entity.Property(e => e.EntityType)
+                .HasMaxLength(50)
+                .IsUnicode(false);
+            entity.Property(e => e.EntityId)
+                .HasMaxLength(100)
+                .IsUnicode(false);
+            entity.Property(e => e.IsRead).HasDefaultValue(false);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+
+            entity.HasOne(d => d.Recipient).WithMany(p => p.Notifications)
+                .HasForeignKey(d => d.RecipientId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_Recipient");
+        });
+
+        modelBuilder.Entity<ClassChangeEvent>(entity =>
+        {
+            entity.ToTable("ClassChangeEvent");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).ValueGeneratedNever();
+            entity.Property(item => item.EventType).HasMaxLength(50).IsUnicode(false);
+            entity.Property(item => item.ActorAccountId).HasMaxLength(400).IsUnicode(false);
+            entity.HasIndex(item => new { item.OperationId, item.SessionId, item.EventType }, "UQ_ClassChangeEvent_Operation").IsUnique();
+            entity.HasOne<ClassSession>().WithMany().HasForeignKey(item => item.SessionId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<Account>().WithMany().HasForeignKey(item => item.ActorAccountId).OnDelete(DeleteBehavior.NoAction);
+        });
+        modelBuilder.Entity<AuditLog>().HasOne<Class>().WithMany().HasForeignKey(item => item.ClassId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<AuditLog>().HasOne<ClassSession>().WithMany().HasForeignKey(item => item.SessionId).OnDelete(DeleteBehavior.NoAction);
         OnModelCreatingPartial(modelBuilder);
     }
 

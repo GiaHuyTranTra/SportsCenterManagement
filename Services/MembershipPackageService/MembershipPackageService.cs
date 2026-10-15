@@ -1,3 +1,5 @@
+using Services.ClassScheduling;
+using Services.AuditLogService;
 using System.Text.Json;
 using APIViewModel.MembershipPackage;
 using DataAccess.Entities;
@@ -81,21 +83,46 @@ public class MembershipPackageService : IMembershipPackageService
             ? 0
             : (int)Math.Ceiling((double)totalItems / pageSize);
 
-        List<MembershipPackageListItemAPIViewModel> items = await query
+        List<MembershipPackage> pagedPackages = await query
             .OrderBy(package => package.Name)
             .ThenBy(package => package.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .ToListAsync();
+
+        int[] packageIds = pagedPackages
+            .Select(package => package.Id)
+            .ToArray();
+        List<PackageSubscriberCount> subscriberCountRows = await _context.MemberSubscriptions
+            .AsNoTracking()
+            .Where(subscription => packageIds.Contains(subscription.PackageId))
+            .GroupBy(subscription => subscription.PackageId)
+            .Select(group => new PackageSubscriberCount
+            {
+                PackageId = group.Key,
+                SubscriberCount = group
+                    .Select(subscription => subscription.MemberId)
+                    .Distinct()
+                    .Count()
+            })
+            .ToListAsync();
+        Dictionary<int, int> subscriberCounts = subscriberCountRows.ToDictionary(
+            item => item.PackageId,
+            item => item.SubscriberCount);
+
+        List<MembershipPackageListItemAPIViewModel> items = pagedPackages
             .Select(package => new MembershipPackageListItemAPIViewModel
             {
                 Id = package.Id,
                 Name = package.Name,
                 Price = package.Price,
                 DurationMonths = package.DurationMonths,
+                Benefits = DeserializeBenefits(package.Benefits),
+                SubscriberCount = subscriberCounts.GetValueOrDefault(package.Id),
                 IsActive = package.IsActive,
                 CreatedAt = package.CreatedAt
             })
-            .ToListAsync();
+            .ToList();
 
         return new PagedMembershipPackageResultAPIViewModel
         {
@@ -241,6 +268,99 @@ public class MembershipPackageService : IMembershipPackageService
         return DeletePackageResult.Success;
     }
 
+    public async Task<APIViewModel.MembershipPackageSport.PackageSportsViewModel> GetPackageSportsAsync(int packageId)
+    {
+        MembershipPackage? package = await _context.MembershipPackages.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == packageId);
+
+        if (package is null)
+        {
+            throw new Services.ScheduleQueryService.BusinessRuleException("PACKAGE_NOT_FOUND", "Không tìm thấy gói tập.");
+        }
+
+        List<int> sportIds = await _context.MembershipPackageSports.AsNoTracking()
+            .Where(item => item.PackageId == packageId)
+            .OrderBy(item => item.DisciplineId)
+            .Select(item => item.DisciplineId)
+            .ToListAsync();
+
+        return new APIViewModel.MembershipPackageSport.PackageSportsViewModel
+        {
+            PackageId = packageId,
+            SportIds = sportIds,
+            AllowsAllSports = sportIds.Count == 0
+        };
+    }
+
+    public async Task<APIViewModel.MembershipPackageSport.PackageSportsViewModel> UpdatePackageSportsAsync(
+        string actorAccountId,
+        int packageId,
+        List<int>? sportIds)
+    {
+        await using Flow2WriteScope operation = await Flow2WriteScope.BeginAsync(_context);
+        operation.ActorAccountId = actorAccountId;
+        MembershipPackage? package = await _context.MembershipPackages
+            .FirstOrDefaultAsync(item => item.Id == packageId);
+
+        if (package is null)
+        {
+            throw new Services.ScheduleQueryService.BusinessRuleException("PACKAGE_NOT_FOUND", "Không tìm thấy gói tập.");
+        }
+
+        List<int> distinctSportIds = sportIds != null
+            ? sportIds.Distinct().ToList()
+            : new List<int>();
+
+        if (distinctSportIds.Count > 0)
+        {
+            List<Discipline> disciplines = await _context.Disciplines.AsNoTracking()
+                .Where(item => distinctSportIds.Contains(item.Id))
+                .ToListAsync();
+
+            List<int> foundIds = disciplines.Select(item => item.Id).ToList();
+            List<int> missingIds = distinctSportIds.Except(foundIds).ToList();
+            if (missingIds.Count > 0)
+            {
+                throw new Services.ScheduleQueryService.BusinessRuleException("SPORT_NOT_FOUND", "Không tìm thấy bộ môn.");
+            }
+
+            List<Discipline> inactiveDisciplines = disciplines.Where(item => !item.IsActive).ToList();
+            if (inactiveDisciplines.Count > 0)
+            {
+                throw new Services.ScheduleQueryService.BusinessRuleException("SPORT_INACTIVE", "Bộ môn đã ngừng hoạt động không thể gán vào gói.");
+            }
+        }
+
+        List<MembershipPackageSport> currentLinks = await _context.MembershipPackageSports
+            .Where(item => item.PackageId == packageId)
+            .ToListAsync();
+
+        _context.MembershipPackageSports.RemoveRange(currentLinks.Where(item => !distinctSportIds.Contains(item.DisciplineId)));
+
+        DateTime now = DateTime.UtcNow;
+        foreach (int sportId in distinctSportIds.Where(id => !currentLinks.Any(item => item.DisciplineId == id)))
+        {
+            _context.MembershipPackageSports.Add(new MembershipPackageSport
+            {
+                PackageId = packageId,
+                DisciplineId = sportId,
+                CreatedAt = now
+            });
+        }
+
+        await new AuditLogService.AuditLogService(_context).StageAuditLogAsync(actorAccountId,
+            "PACKAGE_SPORTS_UPDATED", "MembershipPackage", packageId.ToString(), "Cập nhật quyền bộ môn của gói.");
+        await _context.SaveChangesAsync();
+        await operation.CommitAsync();
+
+        return new APIViewModel.MembershipPackageSport.PackageSportsViewModel
+        {
+            PackageId = packageId,
+            SportIds = distinctSportIds.OrderBy(id => id).ToList(),
+            AllowsAllSports = distinctSportIds.Count == 0
+        };
+    }
+
     private static string? NormalizeName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -320,5 +440,12 @@ public class MembershipPackageService : IMembershipPackageService
             CreatedAt = package.CreatedAt,
             UpdatedAt = package.UpdatedAt
         };
+    }
+
+    private sealed class PackageSubscriberCount
+    {
+        public int PackageId { get; set; }
+
+        public int SubscriberCount { get; set; }
     }
 }

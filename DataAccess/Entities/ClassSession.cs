@@ -43,5 +43,13 @@ public partial class ClassSession
 
     public virtual Room Room { get; set; } = null!;
 
+    public virtual Class Class { get; set; } = null!;
+
+    public virtual Coach Coach { get; set; } = null!;
+
+    public virtual Account? CanceledByAccount { get; set; }
+
+    public virtual Account? CreatedByAccount { get; set; }
+
     public virtual ICollection<ClassRegistration> Registrations { get; set; } = new List<ClassRegistration>();
 }

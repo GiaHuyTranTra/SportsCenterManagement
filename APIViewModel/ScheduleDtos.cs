@@ -23,6 +23,9 @@ public class ClassSessionViewDto
     public int RemainingCapacity => Math.Max(0, Capacity - BookedCount);
     public string Status { get; set; } = string.Empty;
     public string? Notes { get; set; }
+    public string? CancelReason { get; set; }
+    public DateTime? CanceledAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }
 
 public class MemberBookedSessionDto : ClassSessionViewDto

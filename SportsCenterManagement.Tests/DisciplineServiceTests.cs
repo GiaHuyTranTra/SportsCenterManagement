@@ -60,6 +60,26 @@ public class DisciplineServiceTests
         Assert.Empty(await context.AuditLogs.ToListAsync());
     }
 
+    [Fact]
+    public async Task GetSportsPagedAsync_FiltersAndPaginatesCorrectly()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        context.Disciplines.AddRange(
+            new Discipline { Id = 1, Name = "Yoga", Description = "Gentle yoga", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new Discipline { Id = 2, Name = "Pilates", Description = "Mat pilates", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new Discipline { Id = 3, Name = "Boxing", Description = "Fitness boxing", IsActive = false, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+        DisciplineService service = new DisciplineService(context, new AuditLogService(context));
+
+        APIViewModel.PagedResult<DisciplineAPIViewModel> activeResult = await service.GetSportsPagedAsync(1, 10, null, true);
+        Assert.Equal(2, activeResult.TotalItems);
+        Assert.Equal(2, activeResult.Items.Count);
+
+        APIViewModel.PagedResult<DisciplineAPIViewModel> searchResult = await service.GetSportsPagedAsync(1, 10, "Box", null);
+        Assert.Equal(1, searchResult.TotalItems);
+        Assert.Equal("Boxing", searchResult.Items[0].Name);
+    }
+
     private static SportsCenterManagementContext CreateContext()
     {
         DbContextOptions<SportsCenterManagementContext> options =

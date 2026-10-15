@@ -17,4 +17,7 @@ public class RegisterMemberRequestAPIViewModel
     [Required(ErrorMessage = "Confirm password is required.")]
     [Compare(nameof(Password), ErrorMessage = "Password and confirm password do not match.")]
     public string ConfirmPassword { get; set; } = null!;
+
+    [RegularExpression("^[0-9]{6}$", ErrorMessage = "Email verification code must contain 6 digits.")]
+    public string? EmailVerificationCode { get; set; }
 }

@@ -22,7 +22,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace SportsCenterManagement.Tests;
 
-public class AuthenticationIntegrationTests
+public partial class AuthenticationIntegrationTests
 {
     private const string Issuer = "SportsCenterManagement";
     private const string Audience = "SportsCenterManagement";
@@ -174,7 +174,7 @@ public class AuthenticationIntegrationTests
     [InlineData("coach-account", "coach@example.com", "Coach")]
     [InlineData("account-1", "member@example.com", "Member")]
     [InlineData("receptionist-account", "receptionist@example.com", "Receptionist")]
-    public async Task NonManagers_CannotCallMemberManagementRoutes(
+    public async Task NonManagers_CannotModifyMembers_AndReceptionistCanRead(
         string accountId,
         string email,
         string role)
@@ -185,11 +185,14 @@ public class AuthenticationIntegrationTests
             CreateToken(accountId, email, role, DateTime.UtcNow.AddMinutes(10)));
 
         HttpResponseMessage list = await client.GetAsync("/api/member");
+        HttpResponseMessage detail = await client.GetAsync("/api/member/account-1");
         HttpResponseMessage create = await client.PostAsJsonAsync("/api/member", new { });
         HttpResponseMessage update = await client.PatchAsJsonAsync("/api/member/account-1", new { });
         HttpResponseMessage delete = await client.DeleteAsync("/api/member/account-1");
 
-        Assert.Equal(HttpStatusCode.Forbidden, list.StatusCode);
+        HttpStatusCode expectedListStatus = role == "Receptionist" ? HttpStatusCode.OK : HttpStatusCode.Forbidden;
+        Assert.Equal(expectedListStatus, list.StatusCode);
+        Assert.Equal(expectedListStatus, detail.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, update.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace DataAccess.Entities;
@@ -17,6 +17,8 @@ public partial class Coach
 
     public virtual ICollection<CoachDiscipline> CoachDisciplines { get; set; }
         = new List<CoachDiscipline>();
+
+    public virtual ICollection<ClassSession> ClassSessions { get; set; } = new List<ClassSession>();
 
     public virtual Account Account { get; set; } = null!;
 }

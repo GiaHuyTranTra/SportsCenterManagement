@@ -59,6 +59,32 @@ public class MembershipPackageController : ControllerBase
         return Ok(package);
     }
 
+    [HttpGet("{id:int}/sports")]
+    [Authorize(Roles = "CenterManager")]
+    public async Task<IActionResult> GetPackageSportsAsync([FromRoute] int id)
+    {
+        APIViewModel.MembershipPackageSport.PackageSportsViewModel result =
+            await _membershipPackageService.GetPackageSportsAsync(id);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:int}/sports")]
+    [Authorize(Roles = "CenterManager")]
+    public async Task<IActionResult> UpdatePackageSportsAsync(
+        [FromRoute] int id,
+        [FromBody] APIViewModel.MembershipPackageSport.UpdatePackageSportsAPIViewModel request)
+    {
+        string? actorAccountId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (actorAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        APIViewModel.MembershipPackageSport.PackageSportsViewModel result =
+            await _membershipPackageService.UpdatePackageSportsAsync(actorAccountId, id, request.SportIds);
+        return Ok(result);
+    }
+
     [HttpPost]
     public async Task<IActionResult> CreatePackageAsync(
         [FromBody] MembershipPackageInputAPIViewModel request)

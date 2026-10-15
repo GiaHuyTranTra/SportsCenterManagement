@@ -6,6 +6,10 @@ public partial class ClassRegistration
 {
     public int Id { get; set; }
 
+    public int? MemberSubscriptionId { get; set; }
+
+    public byte[]? RowVersion { get; set; }
+
     public int SessionId { get; set; }
 
     public string MemberId { get; set; } = null!;
@@ -25,4 +29,10 @@ public partial class ClassRegistration
     public string? CancelReason { get; set; }
 
     public virtual ClassSession Session { get; set; } = null!;
+
+    public virtual Member Member { get; set; } = null!;
+
+    public virtual Account RegisteredByAccount { get; set; } = null!;
+
+    public virtual Account? CanceledByAccount { get; set; }
 }

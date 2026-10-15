@@ -44,12 +44,12 @@ public class ScheduleQueryServiceTests
             new ClassRegistration
             {
                 Id = 1, SessionId = 1, MemberId = "member-1", Status = "CANCELED",
-                RegisteredVia = "MEMBER", RegisteredBy = "member-1"
+                RegisteredVia = "MEMBER", RegisteredBy = "member-1", Member = CreateMember("member-1"), RegisteredByAccount = CreateAccount("member-1")
             },
             new ClassRegistration
             {
                 Id = 2, SessionId = 1, MemberId = "member-2", Status = "BOOKED",
-                RegisteredVia = "MEMBER", RegisteredBy = "member-2"
+                RegisteredVia = "MEMBER", RegisteredBy = "member-2", Member = CreateMember("member-2"), RegisteredByAccount = CreateAccount("member-2")
             });
         await context.SaveChangesAsync();
         ScheduleQueryService service = new(context);
@@ -71,11 +71,20 @@ public class ScheduleQueryServiceTests
         return new SportsCenterManagementContext(options);
     }
 
+    private static Account CreateAccount(string id) => new Account
+    {
+        Id = id, Email = id + "@example.com", PasswordHash = Guid.NewGuid().ToString("N"), Status = "Active", RoleId = 3
+    };
+
+    private static Member CreateMember(string id) => new Member { AccountId = id, FullName = id, MemberCode = id };
+
     private static ClassSession CreateSession(int id, string coachId)
     {
         return new ClassSession
         {
-            Id = id, ClassId = 1, CoachId = coachId, RoomId = id,
+            Id = id, ClassId = id, CoachId = coachId, RoomId = id,
+            Class = new Class { Id = id, Name = "Test Class", Status = "OPEN", Capacity = 10,
+                Discipline = new Discipline { Id = id, Name = "Yoga", IsActive = true } },
             SessionDate = new DateTime(2030, 1, 1), StartTime = TimeSpan.FromHours(9),
             EndTime = TimeSpan.FromHours(10), Capacity = 10, Status = "SCHEDULED",
             Room = new Room { Id = id, Name = $"Room {id}", Capacity = 10, IsActive = true }

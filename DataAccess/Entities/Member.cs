@@ -22,4 +22,6 @@ public partial class Member
     public virtual ICollection<MemberSubscription> MemberSubscriptions { get; set; } = new List<MemberSubscription>();
 
     public virtual ICollection<MembershipInvoice> MembershipInvoices { get; set; } = new List<MembershipInvoice>();
+
+    public virtual ICollection<ClassRegistration> ClassRegistrations { get; set; } = new List<ClassRegistration>();
 }

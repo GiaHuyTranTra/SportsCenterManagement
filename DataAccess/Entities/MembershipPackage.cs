@@ -22,4 +22,6 @@ public partial class MembershipPackage
     public DateTime? UpdatedAt { get; set; }
 
     public virtual ICollection<MemberSubscription> MemberSubscriptions { get; set; } = new List<MemberSubscription>();
+
+    public virtual ICollection<MembershipPackageSport> MembershipPackageSports { get; set; } = new List<MembershipPackageSport>();
 }

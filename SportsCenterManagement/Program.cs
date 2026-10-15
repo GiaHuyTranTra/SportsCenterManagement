@@ -17,12 +17,18 @@ using Services.AuthService;
 using Services.CoachService;
 using Services.DisciplineService;
 using Services.EmailService;
+using Services.EmailVerificationService;
 using Services.MemberService;
 using Services.MembershipPackageService;
 using Services.MembershipInvoiceService;
 using Services.MemberSubscriptionService;
 using Services.PasswordHashService;
 using Services.ReceptionistService;
+using Services.RoomService;
+using Services.ClassService;
+using Services.ClassSessionService;
+using Services.ClassRegistrationService;
+using Services.NotificationService;
 using Services.Utils;
 using SportsCenterManagement.Filter;
 using SportsCenterManagement.Middleware;
@@ -216,6 +222,8 @@ public class Program
             containerBuilder.RegisterType<CoachService>().As<ICoachService>();
             containerBuilder.RegisterType<DisciplineService>().As<IDisciplineService>();
             containerBuilder.RegisterType<EmailService>().As<IEmailService>();
+            containerBuilder.RegisterType<EmailVerificationService>()
+                .As<IEmailVerificationService>();
             containerBuilder.RegisterType<MemberService>().As<IMemberService>();
             containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
             containerBuilder.RegisterType<MembershipInvoiceService>().As<IMembershipInvoiceService>();
@@ -223,6 +231,11 @@ public class Program
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
             containerBuilder.RegisterType<ReceptionistService>().As<IReceptionistService>();
+            containerBuilder.RegisterType<RoomService>().As<IRoomService>();
+            containerBuilder.RegisterType<ClassService>().As<IClassService>();
+            containerBuilder.RegisterType<ClassSessionService>().As<IClassSessionService>();
+            containerBuilder.RegisterType<ClassRegistrationService>().As<IClassRegistrationService>();
+            containerBuilder.RegisterType<NotificationService>().As<INotificationService>();
             containerBuilder.RegisterType<AuthFilter>().AsSelf();
         });
 

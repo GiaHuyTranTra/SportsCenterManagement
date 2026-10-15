@@ -10,4 +10,7 @@ public class LoginRequestAPIViewModel
 
     [Required]
     public string Password { get; set; } = null!;
+
+    [RegularExpression("^[0-9]{6}$")]
+    public string? EmailVerificationCode { get; set; }
 }

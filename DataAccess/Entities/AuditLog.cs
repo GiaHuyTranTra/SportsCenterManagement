@@ -1,10 +1,16 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace DataAccess.Entities;
 
 public partial class AuditLog
 {
+    public int? ClassId { get; set; }
+
+    public int? SessionId { get; set; }
+
+    public Guid? OperationId { get; set; }
+
     public string Id { get; set; } = null!;
 
     public string? AccountId { get; set; }

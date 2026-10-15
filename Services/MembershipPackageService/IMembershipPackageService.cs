@@ -52,4 +52,11 @@ public interface IMembershipPackageService
     Task<UpdatePackageStatusResult> UpdatePackageStatusAsync(int id, bool isActive);
 
     Task<DeletePackageResult> DeletePackageAsync(int id);
+
+    Task<APIViewModel.MembershipPackageSport.PackageSportsViewModel> GetPackageSportsAsync(int packageId);
+
+    Task<APIViewModel.MembershipPackageSport.PackageSportsViewModel> UpdatePackageSportsAsync(
+        string actorAccountId,
+        int packageId,
+        List<int>? sportIds);
 }

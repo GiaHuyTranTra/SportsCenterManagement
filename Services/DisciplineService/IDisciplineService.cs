@@ -32,17 +32,23 @@ public interface IDisciplineService
 {
     Task<List<DisciplineAPIViewModel>> GetDisciplinesAsync(bool activeOnly);
 
+    Task<APIViewModel.PagedResult<DisciplineAPIViewModel>> GetSportsPagedAsync(
+        int page,
+        int pageSize,
+        string? search,
+        bool? isActive);
+
     Task<(CreateDisciplineResult Result, DisciplineAPIViewModel? Data)> CreateDisciplineAsync(
         string actorAccountId,
-        CreateDisciplineAPIViewModel request);
+        CreateDisciplineAPIViewModel request, bool sportContract = false);
 
     Task<(UpdateDisciplineResult Result, DisciplineAPIViewModel? Data)> UpdateDisciplineAsync(
         string actorAccountId,
         int disciplineId,
-        UpdateDisciplineAPIViewModel request);
+        UpdateDisciplineAPIViewModel request, bool sportContract = false);
 
     Task<UpdateDisciplineStatusResult> UpdateDisciplineStatusAsync(
         string actorAccountId,
         int disciplineId,
-        bool isActive);
+        bool isActive, bool sportContract = false);
 }

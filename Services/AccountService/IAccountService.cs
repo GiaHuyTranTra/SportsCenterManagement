@@ -1,4 +1,5 @@
 using APIViewModel.Account;
+using APIViewModel.AccountProfile;
 using APIViewModel.CenterManager;
 using APIViewModel.Coach;
 using APIViewModel.Member;
@@ -45,11 +46,13 @@ public enum UpdateAccountStatusResult
 
 public interface IAccountService
 {
+    Task<AccountProfileAPIViewModel?> GetProfileAsync(string accountId);
+
     Task<bool> CreateCenterManagerAsync(CreateCenterManagerAPIViewModel info);
 
     Task<bool> CreateCoachAsync(CreateCoachAPIViewModel info);
 
-    Task<bool> CreateMemberAsync(CreateMemberAPIViewModel info);
+    Task<RegisterMemberResponseAPIViewModel?> CreateMemberAsync(CreateMemberAPIViewModel info);
 
     Task<bool> CreateReceptionistAsync(CreateReceptionistAPIViewModel info);
 

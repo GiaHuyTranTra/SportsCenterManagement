@@ -11,7 +11,8 @@ public interface IAuditLogService
         DateTime? to,
         string? accountId,
         string? action,
-        string? entityType);
+        string? entityType,
+        string? entityId = null, int? classId = null, int? sessionId = null, string? search = null);
 
     Task StageAuditLogAsync(
         string? accountId,

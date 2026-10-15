@@ -25,7 +25,7 @@ public class MemberController : ControllerBase
         _memberSubscriptionService = memberSubscriptionService;
     }
 
-    [Authorize(Roles = "CenterManager")]
+    [Authorize(Roles = "CenterManager,Receptionist")]
     [HttpGet]
     public async Task<IActionResult> GetMembersAsync(
         [FromQuery] int page = 1,
@@ -121,7 +121,7 @@ public class MemberController : ControllerBase
         }
     }
 
-    [Authorize(Roles = "CenterManager")]
+    [Authorize(Roles = "CenterManager,Receptionist")]
     [HttpGet("{accountId}", Name = "GetMemberById")]
     public async Task<IActionResult> GetMemberByIdAsync([FromRoute] string accountId)
     {

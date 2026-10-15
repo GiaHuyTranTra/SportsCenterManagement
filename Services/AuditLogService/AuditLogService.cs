@@ -1,3 +1,4 @@
+using Services.ClassScheduling;
 using APIViewModel.AuditLog;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +24,8 @@ public class AuditLogService : IAuditLogService
         DateTime? to,
         string? accountId,
         string? action,
-        string? entityType)
+        string? entityType,
+        string? entityId = null, int? classId = null, int? sessionId = null, string? search = null)
     {
         int normalizedPage = page <= 0 ? 1 : page;
         int normalizedPageSize = pageSize <= 0 || pageSize > MaximumPageSize
@@ -32,6 +34,7 @@ public class AuditLogService : IAuditLogService
         string? normalizedAccountId = NormalizeOptional(accountId);
         string? normalizedAction = NormalizeOptional(action);
         string? normalizedEntityType = NormalizeOptional(entityType);
+        string? normalizedEntityId = NormalizeOptional(entityId);
 
         IQueryable<AuditLog> query = _context.AuditLogs
             .AsNoTracking()
@@ -69,6 +72,19 @@ public class AuditLogService : IAuditLogService
             query = query.Where(item => item.EntityType == normalizedEntityType);
         }
 
+        if (normalizedEntityId is not null)
+        {
+            query = query.Where(item => item.EntityId == normalizedEntityId);
+        }
+
+        if (classId.HasValue) query = query.Where(item => item.ClassId == classId.Value);
+        if (sessionId.HasValue) query = query.Where(item => item.SessionId == sessionId.Value);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string keyword = search.Trim();
+            query = query.Where(item => item.Action.Contains(keyword) ||
+                (item.Description != null && item.Description.Contains(keyword)));
+        }
         int totalItems = await query.CountAsync();
         int totalPages = totalItems == 0
             ? 0
@@ -108,8 +124,19 @@ public class AuditLogService : IAuditLogService
         string? normalizedEntityId = NormalizeBoundedOptional(entityId, 400, nameof(entityId));
         string? normalizedDescription = NormalizeBoundedOptional(description, 500, nameof(description));
 
+        int? relatedSessionId = null;
+        if (entityType == "ClassRegistration" && int.TryParse(entityId, out int registrationId))
+            relatedSessionId = await _context.ClassRegistrations.Where(item => item.Id == registrationId)
+                .Select(item => (int?)item.SessionId).FirstOrDefaultAsync();
+        if (entityType == "ClassSession" && int.TryParse(entityId, out int parsedSessionId)) relatedSessionId = parsedSessionId;
+        int? relatedClassId = relatedSessionId.HasValue
+            ? await _context.ClassSessions.Where(item => item.Id == relatedSessionId.Value).Select(item => (int?)item.ClassId).FirstOrDefaultAsync()
+            : null;
         AuditLog auditLog = new AuditLog
         {
+            OperationId = Flow2WriteScope.Current(_context)?.OperationId,
+            ClassId = entityType == "Class" && int.TryParse(entityId, out int classId) ? classId : relatedClassId,
+            SessionId = relatedSessionId,
             Id = Guid.NewGuid().ToString("N"),
             AccountId = normalizedAccountId,
             Action = normalizedAction,

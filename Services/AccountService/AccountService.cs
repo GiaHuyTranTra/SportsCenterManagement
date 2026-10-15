@@ -1,5 +1,6 @@
 using APIViewModel.Account;
 using APIViewModel.CenterManager;
+using APIViewModel.AccountProfile;
 using APIViewModel.Coach;
 using APIViewModel.Member;
 using APIViewModel.Receptionist;
@@ -26,6 +27,31 @@ public class AccountService : IAccountService
     {
         _context = context;
         _passwordHashService = passwordHashService;
+    }
+
+    public async Task<AccountProfileAPIViewModel?> GetProfileAsync(string accountId)
+    {
+        (GetCurrentUserProfileResult result, CurrentUserProfileAPIViewModel? profile) =
+            await GetCurrentUserProfileAsync(accountId);
+        if (result != GetCurrentUserProfileResult.Success || profile is null)
+        {
+            return null;
+        }
+
+        return new AccountProfileAPIViewModel
+        {
+            AccountId = profile.AccountId,
+            Email = profile.Email,
+            Role = profile.Role,
+            FullName = profile.FullName ?? string.Empty,
+            Phone = profile.Phone,
+            DateOfBirth = profile.DateOfBirth,
+            AvatarUrl = profile.AvatarUrl,
+            Specialization = profile.Specialization,
+            WorkSchedule = profile.WorkSchedule ?? profile.WorkShift,
+            MemberCode = profile.MemberCode,
+            CreatedAt = profile.CreatedAt
+        };
     }
 
     private async Task<bool> IsDuplicate(string email, string phone)
@@ -138,20 +164,21 @@ public class AccountService : IAccountService
         }
     }
 
-    public async Task<bool> CreateMemberAsync(CreateMemberAPIViewModel info)
+    public async Task<RegisterMemberResponseAPIViewModel?> CreateMemberAsync(
+        CreateMemberAPIViewModel info)
     {
         try
         {
             if (await IsDuplicate(info.Email, info.Phone!) || string.IsNullOrEmpty(info.MemberCode))
             {
-                return false;
+                return null;
             }
 
             bool duplicateMemberCode = await _context.Members
                 .AnyAsync(q => q.MemberCode == info.MemberCode);
             if (duplicateMemberCode)
             {
-                return false;
+                return null;
             }
 
             Role? role = await _context.Roles
@@ -160,13 +187,15 @@ public class AccountService : IAccountService
 
             if (role is null)
             {
-                return false;
+                return null;
             }
+
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
 
             Account newAccount = new Account
             {
                 Id = Guid.NewGuid().ToString(),
-                Email = info.Email,
+                Email = normalizedEmail,
                 Phone = info.Phone,
                 PasswordHash = _passwordHashService.HashPassword(info.Password),
                 RoleId = role.Id,
@@ -188,11 +217,16 @@ public class AccountService : IAccountService
 
             await _context.Members.AddAsync(newMember);
             await _context.SaveChangesAsync();
-            return true;
+            return new RegisterMemberResponseAPIViewModel
+            {
+                AccountId = newAccount.Id,
+                Email = newAccount.Email,
+                MemberCode = newMember.MemberCode
+            };
         }
         catch (Exception)
         {
-            return false;
+            return null;
         }
     }
 

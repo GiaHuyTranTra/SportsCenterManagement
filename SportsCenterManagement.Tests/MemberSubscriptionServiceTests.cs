@@ -154,6 +154,77 @@ public class MemberSubscriptionServiceTests
         Assert.DoesNotContain("passwordHash", responseJson, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task CancelInvoice_CancelsPendingPairOnce_AndDoesNotReactivateOnRetry()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.SingleAsync();
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+
+        Assert.Equal(Services.MembershipInvoiceService.CancelInvoiceResult.Success,
+            await service.CancelPendingInvoiceAsync(invoice.Id, fixture.Manager.Id));
+        Assert.Equal(Services.MembershipInvoiceService.CancelInvoiceResult.InvalidInvoiceState,
+            await service.CancelPendingInvoiceAsync(invoice.Id, fixture.Manager.Id));
+        fixture.Context.ChangeTracker.Clear();
+        Assert.Equal("CANCELED", (await fixture.Context.MembershipInvoices.SingleAsync()).Status);
+        Assert.Equal("CANCELED", (await fixture.Context.MemberSubscriptions.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task CancelInvoice_MemberCannotCancelAnotherMembersInvoice()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.SingleAsync();
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+
+        Assert.Equal(Services.MembershipInvoiceService.CancelInvoiceResult.InvoiceNotFound,
+            await service.CancelPendingInvoiceAsync(invoice.Id, "member-account"));
+        fixture.Context.ChangeTracker.Clear();
+        Assert.Equal("PENDING_PAYMENT", (await fixture.Context.MembershipInvoices.SingleAsync()).Status);
+        Assert.Equal("PENDING_PAYMENT", (await fixture.Context.MemberSubscriptions.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task CancelInvoice_DoesNotCancelPaidInvoice()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(item => item.Subscription).SingleAsync();
+        invoice.Status = "PAID";
+        invoice.Subscription.Status = "CONFIRMED";
+        await fixture.Context.SaveChangesAsync();
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+
+        Assert.Equal(Services.MembershipInvoiceService.CancelInvoiceResult.InvalidInvoiceState,
+            await service.CancelPendingInvoiceAsync(invoice.Id, fixture.Manager.Id));
+        fixture.Context.ChangeTracker.Clear();
+        Assert.Equal("PAID", (await fixture.Context.MembershipInvoices.SingleAsync()).Status);
+        Assert.Equal("CONFIRMED", (await fixture.Context.MemberSubscriptions.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task MemberInvoiceQueries_IgnoreForeignMemberFilter_AndHideForeignReceipt()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.SingleAsync();
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+
+        Assert.Empty(await service.GetInvoicesAsync("member-account", invoice.MemberId));
+        (Services.MembershipInvoiceService.GetReceiptResult result, APIViewModel.MembershipInvoice.MembershipReceiptAPIViewModel? receipt) =
+            await service.GetReceiptAsync(invoice.Id, "member-account");
+        Assert.Equal(Services.MembershipInvoiceService.GetReceiptResult.InvoiceNotFound, result);
+        Assert.Null(receipt);
+    }
+
+    private static Services.MembershipInvoiceService.MembershipInvoiceService CreateInvoiceService(
+        MemberSubscriptionServiceTestFixture fixture)
+    {
+        IConfiguration configuration = new ConfigurationBuilder().Build();
+        return new Services.MembershipInvoiceService.MembershipInvoiceService(fixture.Context, configuration);
+    }
     private static async Task AssertNoRegistrationWritesAsync(
         MemberSubscriptionServiceTestFixture fixture)
     {
@@ -344,6 +415,8 @@ public class MemberSubscriptionServiceTests
         {
             return Task.CompletedTask;
         }
+
+        public Task SendEmailVerificationOtpAsync(string recipientEmail, string otp, string purpose, int expiresInMinutes) => Task.CompletedTask;
 
         public Task SendMemberWelcomeAsync(
             string recipientEmail,

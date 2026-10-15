@@ -1,0 +1,8 @@
+SET NOCOUNT ON;
+SELECT 'IDX ' + CAST(name AS nvarchar(200)) COLLATE DATABASE_DEFAULT + ' uniq=' + CAST(is_unique AS varchar) + ' ' + CAST(ISNULL(filter_definition,'') AS nvarchar(400)) COLLATE DATABASE_DEFAULT FROM sys.indexes WHERE name IN (N'UQ_Discipline_NormalizedName',N'UQ_Room_NormalizedName',N'UQ_Class_NormalizedName_Active',N'UQ_ClassRegistration_ActiveBooking',N'UQ_ClassChangeEvent_Operation',N'UQ_Notification_EventRecipient');
+SELECT 'BADFK ' + CAST(name AS nvarchar(200)) COLLATE DATABASE_DEFAULT + ' del=' + CAST(delete_referential_action_desc AS nvarchar(30)) COLLATE DATABASE_DEFAULT + ' untrusted=' + CAST(is_not_trusted AS varchar) FROM sys.foreign_keys WHERE delete_referential_action<>0 OR is_not_trusted=1 OR is_disabled=1;
+SELECT 'CK ' + CAST(name AS nvarchar(200)) COLLATE DATABASE_DEFAULT + ' untrusted=' + CAST(is_not_trusted AS varchar) FROM sys.check_constraints;
+SELECT 'ROWS acc=' + CAST((SELECT COUNT(*) FROM Account) AS varchar) + ' disc=' + CAST((SELECT COUNT(*) FROM Discipline) AS varchar) + ' class=' + CAST((SELECT COUNT(*) FROM Class) AS varchar) + ' sess=' + CAST((SELECT COUNT(*) FROM ClassSession) AS varchar) + ' reg=' + CAST((SELECT COUNT(*) FROM ClassRegistration) AS varchar) + ' notif=' + CAST((SELECT COUNT(*) FROM Notification) AS varchar);
+SELECT 'DISC ' + Name + ' => ' + NormalizedName FROM Discipline;
+SELECT 'NOTIFCOLS ' + STRING_AGG(CAST(name AS nvarchar(100)) COLLATE DATABASE_DEFAULT, ',') FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Notification');
+SELECT 'SESSION bc=' + CAST(BookedCount AS varchar) + ' rv=' + CAST(CASE WHEN RowVersion IS NULL THEN 0 ELSE 1 END AS varchar) FROM ClassSession;

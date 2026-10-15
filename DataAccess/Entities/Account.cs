@@ -40,4 +40,6 @@ public partial class Account
     public virtual Receptionist? Receptionist { get; set; }
 
     public virtual Role Role { get; set; } = null!;
+
+    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 }

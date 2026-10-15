@@ -7,9 +7,15 @@ public partial class Room
 {
     public int Id { get; set; }
 
+    public string NormalizedName { get; set; } = string.Empty;
+
+    public byte[]? RowVersion { get; set; }
+
     public string Name { get; set; } = null!;
 
     public string? Location { get; set; }
+
+    public string? RoomType { get; set; }
 
     public int Capacity { get; set; }
 

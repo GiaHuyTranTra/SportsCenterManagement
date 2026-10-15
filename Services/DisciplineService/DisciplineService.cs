@@ -1,3 +1,4 @@
+using Services.ClassScheduling;
 using System.Data;
 using APIViewModel.Discipline;
 using DataAccess.Entities;
@@ -44,11 +45,63 @@ public class DisciplineService : IDisciplineService
             .ToListAsync();
     }
 
+    public async Task<APIViewModel.PagedResult<DisciplineAPIViewModel>> GetSportsPagedAsync(
+        int page,
+        int pageSize,
+        string? search,
+        bool? isActive)
+    {
+        int normalizedPage = Math.Max(1, page);
+        int normalizedPageSize = Math.Clamp(pageSize, 1, 100);
+
+        IQueryable<Discipline> query = _context.Disciplines.AsNoTracking();
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(item => item.IsActive == isActive.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string keyword = search.Trim();
+            query = query.Where(item => item.Name.Contains(keyword) ||
+                (item.Description != null && item.Description.Contains(keyword)));
+        }
+
+        int totalItems = await query.CountAsync();
+
+        List<DisciplineAPIViewModel> items = await query
+            .OrderBy(item => item.Name)
+            .ThenBy(item => item.Id)
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .Select(item => new DisciplineAPIViewModel
+            {
+                Id = item.Id,
+                Name = item.Name,
+                Description = item.Description,
+                IsActive = item.IsActive,
+                CreatedAt = item.CreatedAt,
+                UpdatedAt = item.UpdatedAt
+            })
+            .ToListAsync();
+
+        return new APIViewModel.PagedResult<DisciplineAPIViewModel>
+        {
+            Items = items,
+            Page = normalizedPage,
+            PageSize = normalizedPageSize,
+            TotalItems = totalItems
+        };
+    }
+
     public async Task<(CreateDisciplineResult Result, DisciplineAPIViewModel? Data)>
         CreateDisciplineAsync(
             string actorAccountId,
-            CreateDisciplineAPIViewModel request)
+            CreateDisciplineAPIViewModel request, bool sportContract = false)
     {
+        await using Flow2WriteScope operation = await Flow2WriteScope.BeginAsync(_context);
+        operation.ActorAccountId = actorAccountId;
         string? normalizedName = NormalizeRequiredName(request.Name);
         if (normalizedName is null)
         {
@@ -57,7 +110,7 @@ public class DisciplineService : IDisciplineService
 
         string? normalizedDescription = NormalizeOptional(request.Description);
         bool duplicateName = await _context.Disciplines
-            .AnyAsync(item => item.Name == normalizedName);
+            .AnyAsync(item => (item.NormalizedName == Flow2Name.Normalize(normalizedName) || item.Name == normalizedName));
         if (duplicateName)
         {
             return (CreateDisciplineResult.DuplicateName, null);
@@ -66,34 +119,27 @@ public class DisciplineService : IDisciplineService
         DateTime now = DateTime.UtcNow;
         Discipline discipline = new Discipline
         {
+            NormalizedName = Flow2Name.Normalize(normalizedName),
             Name = normalizedName,
             Description = normalizedDescription,
             IsActive = true,
             CreatedAt = now
         };
-        IDbContextTransaction? transaction = null;
+        IDbContextTransaction? transaction = operation.Transaction;
 
         try
         {
-            if (_context.Database.IsRelational())
-            {
-                transaction = await _context.Database.BeginTransactionAsync(
-                    IsolationLevel.ReadCommitted);
-            }
 
             await _context.Disciplines.AddAsync(discipline);
             await _context.SaveChangesAsync();
             await _auditLogService.StageAuditLogAsync(
                 actorAccountId,
-                "CREATE",
-                "Discipline",
+                sportContract ? "SPORT_CREATED" : "CREATE",
+                sportContract ? "Sport" : "Discipline",
                 discipline.Id.ToString(),
                 "Created discipline " + normalizedName + ".");
             await _context.SaveChangesAsync();
-            if (transaction is not null)
-            {
-                await transaction.CommitAsync();
-            }
+            await operation.CommitAsync();
             return (CreateDisciplineResult.Success, MapDiscipline(discipline));
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
@@ -116,7 +162,7 @@ public class DisciplineService : IDisciplineService
         {
             if (transaction is not null)
             {
-                await transaction.DisposeAsync();
+                await operation.DisposeAsync();
             }
         }
     }
@@ -125,8 +171,10 @@ public class DisciplineService : IDisciplineService
         UpdateDisciplineAsync(
             string actorAccountId,
             int disciplineId,
-            UpdateDisciplineAPIViewModel request)
+            UpdateDisciplineAPIViewModel request, bool sportContract = false)
     {
+        await using Flow2WriteScope operation = await Flow2WriteScope.BeginAsync(_context);
+        operation.ActorAccountId = actorAccountId;
         if (disciplineId <= 0 || request.Name is null && request.Description is null)
         {
             return (UpdateDisciplineResult.InvalidData, null);
@@ -153,7 +201,7 @@ public class DisciplineService : IDisciplineService
         if (normalizedName is not null)
         {
             bool duplicateName = await _context.Disciplines.AnyAsync(item =>
-                item.Id != disciplineId && item.Name == normalizedName);
+                item.Id != disciplineId && (item.NormalizedName == Flow2Name.Normalize(normalizedName) || item.Name == normalizedName));
             if (duplicateName)
             {
                 return (UpdateDisciplineResult.DuplicateName, null);
@@ -163,6 +211,7 @@ public class DisciplineService : IDisciplineService
         bool changed = false;
         if (normalizedName is not null && discipline.Name != normalizedName)
         {
+            discipline.NormalizedName = Flow2Name.Normalize(normalizedName);
             discipline.Name = normalizedName;
             changed = true;
         }
@@ -181,14 +230,15 @@ public class DisciplineService : IDisciplineService
         discipline.UpdatedAt = DateTime.UtcNow;
         await _auditLogService.StageAuditLogAsync(
             actorAccountId,
-            "UPDATE",
-            "Discipline",
+            sportContract ? "SPORT_UPDATED" : "UPDATE",
+            sportContract ? "Sport" : "Discipline",
             discipline.Id.ToString(),
             "Updated discipline " + discipline.Name + ".");
 
         try
         {
             await _context.SaveChangesAsync();
+            await operation.CommitAsync();
             return (UpdateDisciplineResult.Success, MapDiscipline(discipline));
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
@@ -204,8 +254,10 @@ public class DisciplineService : IDisciplineService
     public async Task<UpdateDisciplineStatusResult> UpdateDisciplineStatusAsync(
         string actorAccountId,
         int disciplineId,
-        bool isActive)
+        bool isActive, bool sportContract = false)
     {
+        await using Flow2WriteScope operation = await Flow2WriteScope.BeginAsync(_context);
+        operation.ActorAccountId = actorAccountId;
         if (disciplineId <= 0)
         {
             return UpdateDisciplineStatusResult.NotFound;
@@ -227,14 +279,15 @@ public class DisciplineService : IDisciplineService
         discipline.UpdatedAt = DateTime.UtcNow;
         await _auditLogService.StageAuditLogAsync(
             actorAccountId,
-            "UPDATE_STATUS",
-            "Discipline",
+            sportContract ? "SPORT_STATUS_CHANGED" : "UPDATE_STATUS",
+            sportContract ? "Sport" : "Discipline",
             discipline.Id.ToString(),
             "Changed discipline status to " + (isActive ? "Active." : "Inactive."));
 
         try
         {
             await _context.SaveChangesAsync();
+            await operation.CommitAsync();
             return UpdateDisciplineStatusResult.Success;
         }
         catch (DbUpdateException)
