@@ -459,6 +459,120 @@ public partial class ClassSessionServiceTests
         Assert.Equal(302, Assert.Single(coach2Schedule.Items).Id);
     }
 
+    [Fact]
+    public async Task CreateSessionAsync_CoachDoesNotTeachClassDiscipline_ThrowsCoachDisciplineMismatch()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        await SeedDependenciesAsync(context);
+
+        context.Disciplines.Add(new Discipline { Id = 2, Name = "Boxing", IsActive = true, CreatedAt = DateTime.UtcNow });
+        context.CoachDisciplines.Add(new CoachDiscipline { CoachAccountId = "coach-2", DisciplineId = 2, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        DateTime futureDate = DateTime.UtcNow.AddDays(5).Date;
+        ClassSessionService service = new ClassSessionService(
+            context,
+            new AuditLogService(context),
+            new NotificationService(context));
+
+        CreateClassSessionAPIViewModel request = new CreateClassSessionAPIViewModel
+        {
+            ClassId = 1,
+            CoachId = "coach-2",
+            RoomId = 1,
+            Date = futureDate.ToString("yyyy-MM-dd"),
+            StartTime = "08:00",
+            EndTime = "09:00",
+            Capacity = 10
+        };
+
+        BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => service.CreateSessionAsync("manager-1", request));
+
+        Assert.Equal("COACH_DISCIPLINE_MISMATCH", exception.Code);
+    }
+
+    [Fact]
+    public async Task UpdateSessionAsync_CoachDoesNotTeachClassDiscipline_ThrowsCoachDisciplineMismatch()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        await SeedDependenciesAsync(context);
+
+        context.Disciplines.Add(new Discipline { Id = 2, Name = "Boxing", IsActive = true, CreatedAt = DateTime.UtcNow });
+        context.CoachDisciplines.Add(new CoachDiscipline { CoachAccountId = "coach-2", DisciplineId = 2, CreatedAt = DateTime.UtcNow });
+
+        DateTime futureDate = DateTime.UtcNow.AddDays(5).Date;
+        context.ClassSessions.Add(new ClassSession
+        {
+            Id = 401,
+            ClassId = 1,
+            CoachId = "coach-1",
+            RoomId = 1,
+            SessionDate = futureDate,
+            StartTime = new TimeSpan(8, 0, 0),
+            EndTime = new TimeSpan(9, 0, 0),
+            Capacity = 10,
+            Status = "SCHEDULED"
+        });
+        await context.SaveChangesAsync();
+
+        ClassSessionService service = new ClassSessionService(
+            context,
+            new AuditLogService(context),
+            new NotificationService(context));
+
+        UpdateClassSessionAPIViewModel request = new UpdateClassSessionAPIViewModel
+        {
+            ClassId = 1,
+            CoachId = "coach-2",
+            RoomId = 1,
+            Date = futureDate.ToString("yyyy-MM-dd"),
+            StartTime = "08:00",
+            EndTime = "09:00",
+            Capacity = 10
+        };
+
+        BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => service.UpdateSessionAsync("manager-1", 401, request));
+
+        Assert.Equal("COACH_DISCIPLINE_MISMATCH", exception.Code);
+    }
+
+    [Fact]
+    public async Task UpdateSessionCoachAsync_CoachDoesNotTeachClassDiscipline_ThrowsCoachDisciplineMismatch()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        await SeedDependenciesAsync(context);
+
+        context.Disciplines.Add(new Discipline { Id = 2, Name = "Boxing", IsActive = true, CreatedAt = DateTime.UtcNow });
+        context.CoachDisciplines.Add(new CoachDiscipline { CoachAccountId = "coach-2", DisciplineId = 2, CreatedAt = DateTime.UtcNow });
+
+        DateTime futureDate = DateTime.UtcNow.AddDays(6).Date;
+        context.ClassSessions.Add(new ClassSession
+        {
+            Id = 402,
+            ClassId = 1,
+            CoachId = "coach-1",
+            RoomId = 1,
+            SessionDate = futureDate,
+            StartTime = new TimeSpan(8, 0, 0),
+            EndTime = new TimeSpan(9, 0, 0),
+            Capacity = 10,
+            Status = "SCHEDULED"
+        });
+        await context.SaveChangesAsync();
+
+        ClassSessionService service = new ClassSessionService(
+            context,
+            new AuditLogService(context),
+            new NotificationService(context));
+
+        BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => service.UpdateSessionCoachAsync("manager-1", 402, "coach-2"));
+
+        Assert.Equal("COACH_DISCIPLINE_MISMATCH", exception.Code);
+    }
+
     private static async Task SeedDependenciesAsync(SportsCenterManagementContext context)
     {
         context.Disciplines.Add(new Discipline { Id = 1, Name = "Yoga", IsActive = true, CreatedAt = DateTime.UtcNow });

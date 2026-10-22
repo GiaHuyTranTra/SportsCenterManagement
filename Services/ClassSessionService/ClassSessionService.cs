@@ -236,6 +236,7 @@ public class ClassSessionService : IClassSessionService
         }
 
         await ScheduleConflict.ValidateAsync(_context, null, request.CoachId, request.RoomId, sessionDate, startTime, endTime);
+        await ValidateCoachDisciplineAsync(request.CoachId, currentClass.DisciplineId);
 
         DateTime now = DateTime.UtcNow;
         ClassSession session = new ClassSession
@@ -390,6 +391,7 @@ public class ClassSessionService : IClassSessionService
         }
 
         await ScheduleConflict.ValidateAsync(_context, id, request.CoachId, request.RoomId, sessionDate, startTime, endTime);
+        await ValidateCoachDisciplineAsync(request.CoachId, currentClass.DisciplineId);
 
         bool timeOrDateChanged = session.SessionDate != sessionDate ||
             session.StartTime != startTime ||
@@ -598,6 +600,7 @@ public class ClassSessionService : IClassSessionService
         }
 
         await ScheduleConflict.ValidateAsync(_context, id, newCoachId, session.RoomId, session.SessionDate, session.StartTime, session.EndTime);
+        await ValidateCoachDisciplineAsync(newCoachId, session.Class.DisciplineId);
 
         if (session.CoachId == newCoachId)
             return MapSession(session, await LoadCoachNamesAsync(new[] { session.CoachId }));
@@ -1002,6 +1005,31 @@ public class ClassSessionService : IClassSessionService
         }
 
         return (sessionDate.Date, startTime, endTime);
+    }
+
+    private async Task ValidateCoachDisciplineAsync(string coachId, int disciplineId)
+    {
+        bool hasConfiguredDisciplines = await _context.CoachDisciplines.AsNoTracking()
+            .AnyAsync(cd => cd.CoachAccountId == coachId);
+
+        if (!hasConfiguredDisciplines)
+        {
+            return;
+        }
+
+        bool teachesDiscipline = await _context.CoachDisciplines.AsNoTracking()
+            .AnyAsync(cd => cd.CoachAccountId == coachId && cd.DisciplineId == disciplineId);
+
+        if (!teachesDiscipline)
+        {
+            throw new BusinessRuleException(
+                "COACH_DISCIPLINE_MISMATCH",
+                "Huấn luyện viên không phụ trách bộ môn của lớp học này.",
+                new Dictionary<string, string[]>
+                {
+                    { "coachId", new[] { "Huấn luyện viên không phụ trách bộ môn của lớp học này." } }
+                });
+        }
     }
 
     private async Task<Dictionary<string, string>> LoadCoachNamesAsync(IEnumerable<string> coachIds)
