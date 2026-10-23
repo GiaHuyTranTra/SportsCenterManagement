@@ -349,6 +349,14 @@ public class ClassRegistrationService : IClassRegistrationService
                 "Không thể hủy đăng ký khi buổi học đã bắt đầu hoặc đã qua.");
         }
 
+        DateTime sessionStart = registration.Session.SessionDate.Date + registration.Session.StartTime;
+        if (!isStaff && sessionStart - localNow < TimeSpan.FromHours(7))
+        {
+            throw new BusinessRuleException(
+                "REGISTRATION_CANCELLATION_TOO_LATE",
+                "Members must cancel at least seven hours before the session starts.");
+        }
+
         string? normalizedReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         if (isStaff)
         {
