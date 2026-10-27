@@ -21,17 +21,29 @@ public class ClassReportService : IClassReportService
         _clock = clock ?? TimeProvider.System;
     }
 
-    public async Task<ClassReportAPIViewModel> GetClassReportAsync(DateOnly? from, DateOnly? to,
+    public Task<ClassReportAPIViewModel> GetClassReportAsync(DateOnly? from, DateOnly? to,
         int? classId, int? sportId, string? registrationStatus, int page, int pageSize)
+    {
+        return QueryClassReportAsync(from, to, classId, sportId, registrationStatus, page, pageSize, false);
+    }
+
+    public Task<ClassReportAPIViewModel> GetClassReportForExportAsync(DateOnly? from, DateOnly? to,
+        int? classId, int? sportId, string? registrationStatus)
+    {
+        return QueryClassReportAsync(from, to, classId, sportId, registrationStatus, 1, 100, true);
+    }
+
+    private async Task<ClassReportAPIViewModel> QueryClassReportAsync(DateOnly? from, DateOnly? to,
+        int? classId, int? sportId, string? registrationStatus, int page, int pageSize, bool export)
     {
         DateOnly end = to ?? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_clock.GetUtcNow(), _timeZone).DateTime);
         DateOnly start = from ?? new DateOnly(end.Year, end.Month, 1);
         if (end == DateOnly.MaxValue || start > end || end.DayNumber - start.DayNumber > 365)
-            throw new BusinessRuleException("INVALID_REPORT_DATE_RANGE", "Choose an ordered range of at most 366 days.");
+            throw new BusinessRuleException("INVALID_REPORT_DATE_RANGE", "Choose an ordered range of at most 366 days.", statusCode: 400);
         string status = string.IsNullOrWhiteSpace(registrationStatus) ? "BOOKED" : registrationStatus.Trim().ToUpperInvariant();
         if ((status != "BOOKED" && status != "CANCELED" && status != "ALL") ||
             classId <= 0 || sportId <= 0 || page < 1 || pageSize < 1 || pageSize > 100 || page > int.MaxValue / pageSize)
-            throw new BusinessRuleException("INVALID_CLASS_REPORT_FILTER", "Invalid class, sport, registration status or pagination.");
+            throw new BusinessRuleException("INVALID_CLASS_REPORT_FILTER", "Invalid class, sport, registration status or pagination.", statusCode: 400);
 
         DateTime startDate = start.ToDateTime(TimeOnly.MinValue);
         DateTime endExclusive = end.AddDays(1).ToDateTime(TimeOnly.MinValue);
@@ -57,16 +69,25 @@ public class ClassReportService : IClassReportService
                 .Select(registration => registration.MemberId).Distinct().Count()
         });
 
+        int totalClasses = await classes.CountAsync();
+        if (export && totalClasses > 10000)
+            throw new BusinessRuleException("REPORT_EXPORT_TOO_LARGE", "Narrow the filters to at most 10000 classes.", statusCode: 413);
+        IQueryable<ClassReportRowAPIViewModel> orderedRows = rows.OrderBy(row => row.ClassName).ThenBy(row => row.ClassId);
+        if (!export) orderedRows = orderedRows.Skip((page - 1) * pageSize).Take(pageSize);
+        else orderedRows = orderedRows.Take(10001);
+        List<ClassReportRowAPIViewModel> items = await orderedRows.ToListAsync();
+        if (export && items.Count > 10000)
+            throw new BusinessRuleException("REPORT_EXPORT_TOO_LARGE", "Narrow the filters to at most 10000 classes.", statusCode: 413);
+
         return new ClassReportAPIViewModel
         {
             From = start, To = end, TimeZoneId = _timeZone.Id, ClassId = classId, SportId = sportId,
             RegistrationStatus = status, Page = page, PageSize = pageSize,
-            TotalClasses = await classes.CountAsync(), TotalSessions = await sessions.CountAsync(),
+            TotalClasses = totalClasses, TotalSessions = await sessions.CountAsync(),
             CanceledSessions = await sessions.CountAsync(session => session.Status == "CANCELED"),
             TotalRegistrations = await registrations.CountAsync(),
             UniqueMembers = await registrations.Select(registration => registration.MemberId).Distinct().CountAsync(),
-            Items = await rows.OrderBy(row => row.ClassName).ThenBy(row => row.ClassId)
-                .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync()
+            Items = items
         };
     }
 }

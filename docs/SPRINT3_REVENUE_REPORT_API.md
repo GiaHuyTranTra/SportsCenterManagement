@@ -30,7 +30,9 @@ UNSUPPORTED_REPORT_PAYMENT_METHOD, or VALIDATION_ERROR for binding failures.
 Relational SQLite tests compare the result to an independent SUM query, and
 cover register/renew/upgrade amounts, pending/canceled/unreconciled methods,
 missing paidAt, center midnight, month/year boundaries, zero buckets and bad
-filters. HTTP tests enforce Manager access. SQL Server timezone execution still
+filters. HTTP tests enforce Manager access. Production SQL translation tests
+also compile the actual DAY/MONTH query and assert database aggregation and
+AT TIME ZONE without opening a connection. SQL Server timezone execution still
 requires a dedicated SQL Server test database; SQLite uses fixed-offset zones.
 
 UC34 cash-confirmation code is unchanged and remains assigned to Huy. This

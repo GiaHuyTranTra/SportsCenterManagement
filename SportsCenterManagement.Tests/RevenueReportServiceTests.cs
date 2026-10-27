@@ -1,8 +1,10 @@
 using System.Data.Common;
 using System.Globalization;
 using APIViewModel.Report;
+using DataAccess.Entities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Services.RevenueReportService;
 using Services.ScheduleQueryService;
 
@@ -10,6 +12,26 @@ namespace SportsCenterManagement.Tests;
 
 public class RevenueReportServiceTests
 {
+    [Theory]
+    [InlineData("DAY")]
+    [InlineData("MONTH")]
+    public void Revenue_TranslatesProductionTimezoneAndAggregationToSqlServer(string grouping)
+    {
+        DbContextOptions<SportsCenterManagementContext> options =
+            new DbContextOptionsBuilder<SportsCenterManagementContext>().UseSqlServer().Options;
+        using SportsCenterManagementContext context = new(options);
+        IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["BusinessSettings:TimeZoneId"] = "SE Asia Standard Time" }).Build();
+        RevenueReportService service = new(context, configuration);
+
+        string sql = service.BuildAggregateQuery(new(2026, 10, 1), new(2026, 10, 28), grouping).ToQueryString();
+
+        Assert.Contains("AT TIME ZONE", sql);
+        Assert.Contains("GROUP BY", sql);
+        Assert.Contains("SUM(", sql);
+        Assert.Contains("[PaidAt]", sql);
+    }
+
     [Fact]
     public async Task Revenue_OnlyCountsPaidCashByPaidAtAndActualCollectedAmount()
     {

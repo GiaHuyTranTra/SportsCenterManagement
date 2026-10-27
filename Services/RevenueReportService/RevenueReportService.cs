@@ -27,57 +27,20 @@ public class RevenueReportService : IRevenueReportService
     {
         string grouping = string.IsNullOrWhiteSpace(groupBy) ? "DAY" : groupBy.Trim().ToUpperInvariant();
         if (grouping != "DAY" && grouping != "MONTH")
-            throw new BusinessRuleException("INVALID_REPORT_GROUPING", "Group by DAY or MONTH.");
+            throw new BusinessRuleException("INVALID_REPORT_GROUPING", "Group by DAY or MONTH.", statusCode: 400);
 
         string method = string.IsNullOrWhiteSpace(paymentMethod) ? "CASH" : paymentMethod.Trim().ToUpperInvariant();
         if (method != "CASH")
-            throw new BusinessRuleException("UNSUPPORTED_REPORT_PAYMENT_METHOD", "Only reconciled CASH payments are supported.");
+            throw new BusinessRuleException("UNSUPPORTED_REPORT_PAYMENT_METHOD", "Only reconciled CASH payments are supported.", statusCode: 400);
 
         DateOnly end = to ?? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_clock.GetUtcNow(), _timeZone).DateTime);
         DateOnly start = from ?? new DateOnly(end.Year, end.Month, 1);
         if (end == DateOnly.MaxValue || start > end || end.DayNumber - start.DayNumber > 365)
-            throw new BusinessRuleException("INVALID_REPORT_DATE_RANGE", "Choose an ordered range of at most 366 days.");
+            throw new BusinessRuleException("INVALID_REPORT_DATE_RANGE", "Choose an ordered range of at most 366 days.", statusCode: 400);
 
         DateTime startUtc = TimeZoneInfo.ConvertTimeToUtc(start.ToDateTime(TimeOnly.MinValue), _timeZone);
         DateTime endUtc = TimeZoneInfo.ConvertTimeToUtc(end.AddDays(1).ToDateTime(TimeOnly.MinValue), _timeZone);
-        IQueryable<MembershipInvoice> invoices = _context.MembershipInvoices.AsNoTracking().Where(invoice =>
-            invoice.Status == "PAID" && invoice.PaymentMethod == "CASH" &&
-            invoice.PaidAt.HasValue && invoice.PaidAt.Value >= startUtc && invoice.PaidAt.Value < endUtc);
-
-        IQueryable<PaymentRow> payments;
-        if (_context.Database.IsSqlServer())
-        {
-            string sqlTimeZone = TimeZoneInfo.TryConvertIanaIdToWindowsId(_timeZone.Id, out string? windowsId)
-                ? windowsId! : _timeZone.Id;
-            payments = invoices.Select(invoice => new PaymentRow
-            {
-                LocalPaidAt = EF.Functions.AtTimeZone(
-                    EF.Functions.AtTimeZone(invoice.PaidAt!.Value, "UTC"), sqlTimeZone).DateTime,
-                Amount = invoice.Amount
-            });
-        }
-        else
-        {
-            // SQLite test hosts support fixed offsets; production uses SQL Server AT TIME ZONE.
-            if (_timeZone.SupportsDaylightSavingTime)
-                throw new InvalidOperationException("This report provider requires a fixed-offset center time zone.");
-            double offsetMinutes = _timeZone.BaseUtcOffset.TotalMinutes;
-            payments = invoices.Select(invoice => new PaymentRow
-            {
-                LocalPaidAt = invoice.PaidAt!.Value.AddMinutes(offsetMinutes), Amount = invoice.Amount
-            });
-        }
-
-        List<RevenueAggregate> aggregates = await payments.GroupBy(payment => new
-            {
-                payment.LocalPaidAt.Year, payment.LocalPaidAt.Month,
-                Day = grouping == "DAY" ? payment.LocalPaidAt.Day : 1
-            })
-            .Select(group => new RevenueAggregate
-            {
-                Year = group.Key.Year, Month = group.Key.Month, Day = group.Key.Day,
-                Revenue = group.Sum(payment => payment.Amount), Count = group.Count()
-            }).ToListAsync();
+        List<RevenueAggregate> aggregates = await BuildAggregateQuery(startUtc, endUtc, grouping).ToListAsync();
         Dictionary<DateOnly, RevenueAggregate> lookup = aggregates.ToDictionary(
             aggregate => new DateOnly(aggregate.Year, aggregate.Month, aggregate.Day));
 
@@ -102,13 +65,55 @@ public class RevenueReportService : IRevenueReportService
         return result;
     }
 
+    internal IQueryable<RevenueAggregate> BuildAggregateQuery(DateTime startUtc, DateTime endUtc, string grouping)
+    {
+        IQueryable<MembershipInvoice> invoices = _context.MembershipInvoices.AsNoTracking().Where(invoice =>
+            invoice.Status == "PAID" && invoice.PaymentMethod == "CASH" &&
+            invoice.PaidAt.HasValue && invoice.PaidAt.Value >= startUtc && invoice.PaidAt.Value < endUtc);
+
+        IQueryable<PaymentRow> payments;
+        if (_context.Database.IsSqlServer())
+        {
+            string sqlTimeZone = TimeZoneInfo.TryConvertIanaIdToWindowsId(_timeZone.Id, out string? windowsId)
+                ? windowsId! : _timeZone.Id;
+            payments = invoices.Select(invoice => new PaymentRow
+            {
+                LocalPaidAt = EF.Functions.AtTimeZone(
+                    EF.Functions.AtTimeZone(invoice.PaidAt!.Value, "UTC"), sqlTimeZone).Date,
+                Amount = invoice.Amount
+            });
+        }
+        else
+        {
+            // SQLite test hosts support fixed offsets; production uses SQL Server AT TIME ZONE.
+            if (_timeZone.SupportsDaylightSavingTime)
+                throw new InvalidOperationException("This report provider requires a fixed-offset center time zone.");
+            double offsetMinutes = _timeZone.BaseUtcOffset.TotalMinutes;
+            payments = invoices.Select(invoice => new PaymentRow
+            {
+                LocalPaidAt = invoice.PaidAt!.Value.AddMinutes(offsetMinutes), Amount = invoice.Amount
+            });
+        }
+
+        return payments.GroupBy(payment => new
+            {
+                payment.LocalPaidAt.Year, payment.LocalPaidAt.Month,
+                Day = grouping == "DAY" ? payment.LocalPaidAt.Day : 1
+            })
+            .Select(group => new RevenueAggregate
+            {
+                Year = group.Key.Year, Month = group.Key.Month, Day = group.Key.Day,
+                Revenue = group.Sum(payment => payment.Amount), Count = group.Count()
+            });
+    }
+
     private sealed class PaymentRow
     {
         public DateTime LocalPaidAt { get; set; }
         public decimal Amount { get; set; }
     }
 
-    private sealed class RevenueAggregate
+    internal sealed class RevenueAggregate
     {
         public int Year { get; set; }
         public int Month { get; set; }

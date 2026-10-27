@@ -9,6 +9,47 @@ namespace SportsCenterManagement.Tests;
 public class ClassReportServiceTests
 {
     [Fact]
+    public async Task Classes_RejectsExportOverRowLimitBeforeMaterializingRows()
+    {
+        await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
+        await SeedClassesAsync(fixture);
+        await fixture.Context.Database.ExecuteSqlRawAsync("""
+            WITH RECURSIVE Numbers(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM Numbers WHERE n < 10001)
+            INSERT INTO Class (Name, NormalizedName, DisciplineId, Capacity, Status, CreatedAt)
+            SELECT 'Extra ' || n, 'EXTRA ' || n, (SELECT MIN(Id) FROM Discipline), 20, 'OPEN', '2026-09-01'
+            FROM Numbers;
+            """);
+        await fixture.Context.Database.ExecuteSqlRawAsync("""
+            INSERT INTO ClassSession (ClassId, CoachId, RoomId, SessionDate, StartTime, EndTime, Capacity, Status, CreatedAt)
+            SELECT Id, 'report-coach', (SELECT MIN(Id) FROM Room), '2026-10-01 00:00:00', '09:00:00', '10:00:00', 20, 'SCHEDULED', '2026-09-01'
+            FROM Class WHERE Name LIKE 'Extra %';
+            """);
+        ClassReportService service = new(fixture.Context, fixture.Configuration);
+
+        BusinessRuleException error = await Assert.ThrowsAsync<BusinessRuleException>(() => service.GetClassReportForExportAsync(
+            new(2026, 10, 1), new(2026, 10, 27), null, null, null));
+
+        Assert.Equal("REPORT_EXPORT_TOO_LARGE", error.Code);
+        Assert.Equal(413, error.StatusCode);
+    }
+
+    [Fact]
+    public async Task Classes_ExportContainsAllFilteredRowsAndSameTotalsAcrossPages()
+    {
+        await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
+        await SeedClassesAsync(fixture);
+        ClassReportService service = new(fixture.Context, fixture.Configuration);
+        ClassReportAPIViewModel page = await service.GetClassReportAsync(new(2026, 10, 1), new(2026, 10, 27), null, null, "ALL", 1, 1);
+        ClassReportAPIViewModel export = await service.GetClassReportForExportAsync(new(2026, 10, 1), new(2026, 10, 27), null, null, "ALL");
+        Assert.Single(page.Items);
+        Assert.Equal(2, export.Items.Count);
+        Assert.Equal(page.TotalClasses, export.Items.Count);
+        Assert.Equal(page.TotalRegistrations, export.TotalRegistrations);
+        Assert.Equal(export.TotalRegistrations, export.Items.Sum(row => row.RegistrationCount));
+        Assert.Equal(page.UniqueMembers, export.UniqueMembers);
+    }
+
+    [Fact]
     public async Task Classes_CountBookingsAndDistinctMembersWithinSessionDates()
     {
         await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
