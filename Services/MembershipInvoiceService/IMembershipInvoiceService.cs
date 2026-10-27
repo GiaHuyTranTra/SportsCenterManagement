@@ -51,6 +51,15 @@ public enum CancelInvoiceResult
 
 public interface IMembershipInvoiceService
 {
+    Task<PagedMembershipInvoiceAPIViewModel> SearchInvoicesAsync(
+        string callerAccountId,
+        string? memberId,
+        string? status,
+        string? search,
+        string? paymentMethod,
+        int page,
+        int pageSize);
+
     Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> PayInvoiceAsync(
         int invoiceId,
         string staffAccountId,

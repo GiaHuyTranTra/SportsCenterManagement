@@ -9,7 +9,5 @@ public class CounterRegisterMemberResponseAPIViewModel
 
     public MembershipReceiptAPIViewModel Receipt { get; set; } = null!;
 
-    public string InitialPassword { get; set; } = null!;
-
     public string EmailDelivery { get; set; } = null!;
 }

@@ -13,6 +13,88 @@ namespace SportsCenterManagement.Tests;
 public class MemberSubscriptionServiceTests
 {
     [Fact]
+    public async Task CounterRegistration_DoesNotReturnCredentialsEvenWhenEmailFails()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        fixture.Email.ThrowOnWelcome = true;
+        (CounterRegisterMemberResult result, CounterRegisterMemberResponseAPIViewModel? data) =
+            await fixture.Service.RegisterMemberAtCounterAsync(fixture.Receptionist.Id, fixture.ValidRequest());
+
+        Assert.Equal(CounterRegisterMemberResult.Success, result);
+        string json = JsonSerializer.Serialize(data);
+        Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("FAILED", data?.EmailDelivery);
+    }
+
+    [Fact]
+    public async Task CounterRegistration_InvoiceInsertFailureRollsBackAccountMemberAndSubscription()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Context.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER RejectInvoice BEFORE INSERT ON MembershipInvoice BEGIN SELECT RAISE(ABORT, 'Injected invoice failure'); END;");
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => fixture.Service.RegisterMemberAtCounterAsync(
+            fixture.Receptionist.Id, fixture.ValidRequest()));
+
+        fixture.Context.ChangeTracker.Clear();
+        await AssertNoRegistrationWritesAsync(fixture);
+        Assert.Equal(0, fixture.Email.WelcomeMessagesSent);
+    }
+
+    [Fact]
+    public async Task InvoiceSearch_AppliesFiltersAndStablePaginationWithoutLeakingOwnership()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        CounterRegisterMemberAPIViewModel second = fixture.ValidRequest();
+        second.Email = "second.member@example.com";
+        second.Phone = "0912345679";
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, second);
+        List<MembershipInvoice> invoices = await fixture.Context.MembershipInvoices.OrderBy(invoice => invoice.Id).ToListAsync();
+        foreach (MembershipInvoice invoice in invoices)
+        {
+            invoice.CreatedAt = new DateTime(2026, 10, 27, 0, 0, 0, DateTimeKind.Utc);
+        }
+        await fixture.Context.SaveChangesAsync();
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+
+        APIViewModel.MembershipInvoice.PagedMembershipInvoiceAPIViewModel firstPage = await service.SearchInvoicesAsync(
+            fixture.Manager.Id, null, " pending_payment ", "Counter Member", " cash ", 1, 1);
+        APIViewModel.MembershipInvoice.PagedMembershipInvoiceAPIViewModel secondPage = await service.SearchInvoicesAsync(
+            fixture.Manager.Id, null, null, null, null, 2, 1);
+
+        Assert.Equal(2, firstPage.TotalItems);
+        Assert.Equal(2, firstPage.TotalPages);
+        Assert.Equal(invoices[1].Id, Assert.Single(firstPage.Items).InvoiceId);
+        Assert.Equal(invoices[0].Id, Assert.Single(secondPage.Items).InvoiceId);
+        Assert.Empty((await service.SearchInvoicesAsync("member-account", invoices[0].MemberId, null, null, null, 1, 20)).Items);
+        Assert.Empty((await service.SearchInvoicesAsync("coach-account", null, null, null, null, 1, 20)).Items);
+    }
+
+    [Fact]
+    public async Task InvoiceHistory_ListsEveryStateAndOnlyProvidesPaidOwnedReceipt()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(item => item.Subscription).SingleAsync();
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+
+        Assert.Equal(Services.MembershipInvoiceService.GetReceiptResult.ReceiptNotAvailable,
+            (await service.GetReceiptAsync(invoice.Id, invoice.MemberId)).Result);
+        invoice.Status = "PAID";
+        invoice.Subscription.Status = "CONFIRMED";
+        invoice.PaidAt = DateTime.UtcNow;
+        invoice.PaidBy = fixture.Receptionist.Id;
+        await fixture.Context.SaveChangesAsync();
+
+        Assert.Equal(Services.MembershipInvoiceService.GetReceiptResult.Success,
+            (await service.GetReceiptAsync(invoice.Id, invoice.MemberId)).Result);
+        Assert.Single((await service.SearchInvoicesAsync(fixture.Manager.Id, null, "PAID", invoice.InvoiceNumber, "CASH", 1, 20)).Items);
+        Assert.Equal(Services.MembershipInvoiceService.GetReceiptResult.InvoiceNotFound,
+            (await service.GetReceiptAsync(invoice.Id, "member-account")).Result);
+    }
+
+    [Fact]
     public async Task RegisterMemberAtCounterAsync_EmailFailureKeepsCommittedPendingOrder()
     {
         await using MemberSubscriptionServiceTestFixture fixture =

@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.Member;
 using APIViewModel.MemberSubscription;
+using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Services.MemberService;
@@ -83,7 +84,7 @@ public class MemberController : ControllerBase
         string? staffAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(staffAccountId))
         {
-            return Unauthorized();
+            return CounterRegistrationError(401, "UNAUTHORIZED", "The account could not be identified.");
         }
 
         (CounterRegisterMemberResult Result, CounterRegisterMemberResponseAPIViewModel? Data) result =
@@ -96,29 +97,45 @@ public class MemberController : ControllerBase
             case CounterRegisterMemberResult.Success when result.Data is not null:
                 return StatusCode(StatusCodes.Status201Created, result.Data);
             case CounterRegisterMemberResult.InvalidData:
+                return CounterRegistrationError(400, "INVALID_MEMBER_DATA", "Invalid member registration data.");
             case CounterRegisterMemberResult.InvalidPaymentMethod:
-                return BadRequest("Invalid counter registration data.");
+                return CounterRegistrationError(400, "INVALID_PAYMENT_METHOD", "Invalid payment method.");
             case CounterRegisterMemberResult.StaffNotFound:
+                return CounterRegistrationError(404, "STAFF_NOT_FOUND", "Staff account not found.");
             case CounterRegisterMemberResult.PackageNotFound:
-                return NotFound();
+                return CounterRegistrationError(404, "PACKAGE_NOT_FOUND", "Membership package not found.");
             case CounterRegisterMemberResult.StaffRoleNotAllowed:
+                return CounterRegistrationError(403, "FORBIDDEN", "Staff role does not permit counter registration.");
             case CounterRegisterMemberResult.StaffInactive:
-                return StatusCode(StatusCodes.Status403Forbidden);
+                return CounterRegistrationError(403, "STAFF_INACTIVE", "Staff account is inactive.");
             case CounterRegisterMemberResult.StaffLocked:
-                return StatusCode(StatusCodes.Status423Locked);
+                return CounterRegistrationError(423, "STAFF_LOCKED", "Staff account is locked.");
             case CounterRegisterMemberResult.DuplicateEmail:
+                return CounterRegistrationError(409, "DUPLICATE_EMAIL", "Email already exists.");
             case CounterRegisterMemberResult.DuplicatePhone:
+                return CounterRegistrationError(409, "DUPLICATE_PHONE", "Phone number already exists.");
             case CounterRegisterMemberResult.PackageInactive:
+                return CounterRegistrationError(409, "PACKAGE_INACTIVE", "Membership package is inactive.");
             case CounterRegisterMemberResult.PendingOrderExists:
+                return CounterRegistrationError(409, "PENDING_ORDER_EXISTS", "A pending order already exists.");
             case CounterRegisterMemberResult.PriceChanged:
+                return CounterRegistrationError(409, "PRICE_CHANGED", "The package price changed. Reload packages and retry.");
             case CounterRegisterMemberResult.InvoiceNumberCollision:
             case CounterRegisterMemberResult.ConcurrencyConflict:
-                return Conflict();
+                return CounterRegistrationError(409, "CONCURRENCY_CONFLICT", "Data changed during registration. Please retry.");
             case CounterRegisterMemberResult.MemberRoleMissing:
-                return StatusCode(StatusCodes.Status500InternalServerError);
             default:
-                return StatusCode(StatusCodes.Status500InternalServerError);
+                return CounterRegistrationError(500, "INTERNAL_ERROR", "Counter registration could not be completed.");
         }
+    }
+
+    private ObjectResult CounterRegistrationError(int statusCode, string code, string message)
+    {
+        return StatusCode(statusCode, new ApiErrorResponseAPIViewModel
+        {
+            Error = new ApiErrorAPIViewModel { Code = code, Message = message },
+            TraceId = HttpContext.TraceIdentifier
+        });
     }
 
     [Authorize(Roles = "CenterManager,Receptionist")]

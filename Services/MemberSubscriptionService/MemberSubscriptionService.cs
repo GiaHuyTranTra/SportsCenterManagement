@@ -243,6 +243,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
         DateOnly today = DateOnly.FromDateTime(
             TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, businessTimeZone));
         CounterRegisterMemberResponseAPIViewModel? response = null;
+        string initialPassword = GenerateInitialPassword();
 
         await using IDbContextTransaction transaction =
             await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
@@ -323,7 +324,6 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             }
 
             DateTime nowUtc = DateTime.UtcNow;
-            string initialPassword = GenerateInitialPassword();
             string memberCode = await GenerateUniqueMemberCodeAsync();
             string invoiceNumber = await GenerateUniqueInvoiceNumberAsync(nowUtc);
             Account account = new Account
@@ -418,7 +418,6 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                     MemberEmail = account.Email,
                     MemberPhone = account.Phone
                 },
-                InitialPassword = initialPassword,
                 EmailDelivery = "NOT_CONFIGURED"
             };
 
@@ -443,6 +442,16 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 return (CounterRegisterMemberResult.PendingOrderExists, null);
             }
 
+            if (IsSpecificUniqueConstraintViolation(exception, "UQ__Account__A9D105343F8562DD"))
+            {
+                return (CounterRegisterMemberResult.DuplicateEmail, null);
+            }
+
+            if (IsSpecificUniqueConstraintViolation(exception, "UQ_Account_Phone"))
+            {
+                return (CounterRegisterMemberResult.DuplicatePhone, null);
+            }
+
             throw;
         }
 
@@ -458,7 +467,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 await _emailService.SendMemberWelcomeAsync(
                     response.Member.Email,
                     response.Member.FullName ?? string.Empty,
-                    response.InitialPassword,
+                    initialPassword,
                     response.Receipt.PackageName,
                     response.Receipt.Amount);
                 response.EmailDelivery = "SENT";

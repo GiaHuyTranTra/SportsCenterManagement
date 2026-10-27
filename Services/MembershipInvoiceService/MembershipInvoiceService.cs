@@ -81,7 +81,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 return (PayInvoiceResult.StaffRoleNotAllowed, null);
             }
 
-            if (!string.Equals(staff.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            if (staff.DeletedAt is not null || !string.Equals(staff.Status, "Active", StringComparison.OrdinalIgnoreCase))
             {
                 return (PayInvoiceResult.StaffInactive, null);
             }
@@ -278,7 +278,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             return (GetReceiptResult.StaffRoleNotAllowed, null);
         }
 
-        if (!string.Equals(staff.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        if (staff.DeletedAt is not null || !string.Equals(staff.Status, "Active", StringComparison.OrdinalIgnoreCase))
         {
             return (GetReceiptResult.StaffInactive, null);
         }
@@ -374,11 +374,31 @@ public class MembershipInvoiceService : IMembershipInvoiceService
     }
 
     public async Task<List<MembershipReceiptAPIViewModel>> GetInvoicesAsync(
+        string staffAccountId, string? memberId = null, string? status = null,
+        string? search = null, string? paymentMethod = null)
+    {
+        PagedMembershipInvoiceAPIViewModel result = await QueryInvoicesAsync(
+            staffAccountId, memberId, status, search, paymentMethod);
+        return result.Items;
+    }
+
+    public Task<PagedMembershipInvoiceAPIViewModel> SearchInvoicesAsync(
+        string callerAccountId, string? memberId, string? status, string? search,
+        string? paymentMethod, int page, int pageSize)
+    {
+        if (page < 1 || pageSize < 1 || pageSize > 100 || page > int.MaxValue / pageSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(page));
+        }
+        return QueryInvoicesAsync(callerAccountId, memberId, status, search, paymentMethod, page, pageSize);
+    }
+
+    private async Task<PagedMembershipInvoiceAPIViewModel> QueryInvoicesAsync(
         string staffAccountId,
         string? memberId = null,
         string? status = null,
         string? search = null,
-        string? paymentMethod = null)
+        string? paymentMethod = null, int? page = null, int pageSize = 20)
     {
         Account? caller = await _context.Accounts
             .Include(a => a.Role)
@@ -391,12 +411,12 @@ public class MembershipInvoiceService : IMembershipInvoiceService
              caller.Role.Name != "CenterManager" &&
              caller.Role.Name != "Member"))
         {
-            return new List<MembershipReceiptAPIViewModel>();
+            return new PagedMembershipInvoiceAPIViewModel { Page = page ?? 1, PageSize = pageSize };
         }
 
-        if (!string.Equals(caller.Status, "Active", StringComparison.OrdinalIgnoreCase) || caller.IsLocked)
+        if (caller.DeletedAt is not null || !string.Equals(caller.Status, "Active", StringComparison.OrdinalIgnoreCase) || caller.IsLocked)
         {
-            return new List<MembershipReceiptAPIViewModel>();
+            return new PagedMembershipInvoiceAPIViewModel { Page = page ?? 1, PageSize = pageSize };
         }
 
         IQueryable<MembershipInvoice> query = _context.MembershipInvoices
@@ -442,9 +462,13 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 i.Member.MemberCode.Contains(trimmedSearch));
         }
 
-        List<MembershipInvoice> invoices = await query
-            .OrderByDescending(i => i.CreatedAt)
-            .ToListAsync();
+        int totalItems = await query.CountAsync();
+        query = query.OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id);
+        if (page.HasValue)
+        {
+            query = query.Skip((page.Value - 1) * pageSize).Take(pageSize);
+        }
+        List<MembershipInvoice> invoices = await query.ToListAsync();
 
         List<MembershipReceiptAPIViewModel> results = new List<MembershipReceiptAPIViewModel>();
         foreach (MembershipInvoice invoice in invoices)
@@ -498,7 +522,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             });
         }
 
-        return results;
+        return new PagedMembershipInvoiceAPIViewModel { Items = results, Page = page ?? 1, PageSize = pageSize, TotalItems = totalItems };
     }
 
     public async Task<CancelInvoiceResult> CancelPendingInvoiceAsync(

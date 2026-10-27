@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
+using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -38,6 +39,46 @@ public class MembershipInvoiceController : ControllerBase
             await _invoiceService.GetInvoicesAsync(staffAccountId, memberId, status, search, paymentMethod);
 
         return Ok(invoices);
+    }
+
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchInvoicesAsync(
+        [FromQuery] string? memberId = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? paymentMethod = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        string? callerAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(callerAccountId))
+        {
+            return InvoiceQueryError(401, "UNAUTHORIZED", "The account could not be identified.");
+        }
+
+        string? normalizedStatus = status?.Trim().ToUpperInvariant();
+        string? normalizedMethod = paymentMethod?.Trim().ToUpperInvariant();
+        if (page < 1 || pageSize < 1 || pageSize > 100 || page > int.MaxValue / pageSize ||
+            (!string.IsNullOrEmpty(normalizedStatus) &&
+             normalizedStatus != "PENDING_PAYMENT" && normalizedStatus != "PAID" && normalizedStatus != "CANCELED") ||
+            (!string.IsNullOrEmpty(normalizedMethod) &&
+             normalizedMethod != "CASH" && normalizedMethod != "CARD" && normalizedMethod != "BANK_TRANSFER"))
+        {
+            return InvoiceQueryError(400, "INVALID_INVOICE_FILTER", "Invalid invoice filters or pagination.");
+        }
+
+        PagedMembershipInvoiceAPIViewModel result = await _invoiceService.SearchInvoicesAsync(
+            callerAccountId, memberId, normalizedStatus, search, normalizedMethod, page, pageSize);
+        return Ok(result);
+    }
+
+    private ObjectResult InvoiceQueryError(int statusCode, string code, string message)
+    {
+        return StatusCode(statusCode, new ApiErrorResponseAPIViewModel
+        {
+            Error = new ApiErrorAPIViewModel { Code = code, Message = message },
+            TraceId = HttpContext.TraceIdentifier
+        });
     }
 
     [HttpPost("{invoiceId:int}/pay")]
@@ -117,21 +158,21 @@ public class MembershipInvoiceController : ControllerBase
             case GetReceiptResult.Success when receipt is not null:
                 return Ok(receipt);
             case GetReceiptResult.ReceiptNotAvailable:
-                return BadRequest("Receipt is only available for PAID invoices.");
+                return InvoiceQueryError(400, "RECEIPT_NOT_AVAILABLE", "Receipt is only available for PAID invoices.");
             case GetReceiptResult.InvoiceNotFound:
-                return NotFound("Membership invoice not found.");
+                return InvoiceQueryError(404, "INVOICE_NOT_FOUND", "Membership invoice not found.");
             case GetReceiptResult.StaffNotFound:
-                return NotFound("Staff account not found.");
+                return InvoiceQueryError(404, "ACCOUNT_NOT_FOUND", "Account not found.");
             case GetReceiptResult.StaffRoleNotAllowed:
-                return StatusCode(StatusCodes.Status403Forbidden, "Staff account does not have required permissions.");
+                return InvoiceQueryError(403, "FORBIDDEN", "Account does not have required permissions.");
             case GetReceiptResult.StaffInactive:
-                return StatusCode(StatusCodes.Status403Forbidden, "Staff account is inactive.");
+                return InvoiceQueryError(403, "ACCOUNT_INACTIVE", "Account is inactive.");
             case GetReceiptResult.StaffLocked:
-                return StatusCode(StatusCodes.Status423Locked, "Staff account is locked.");
+                return InvoiceQueryError(423, "ACCOUNT_LOCKED", "Account is locked.");
             case GetReceiptResult.DataIntegrityViolation:
-                return StatusCode(StatusCodes.Status500InternalServerError, "Internal data integrity error.");
+                return InvoiceQueryError(500, "DATA_INTEGRITY_ERROR", "Receipt data is inconsistent.");
             default:
-                return StatusCode(StatusCodes.Status500InternalServerError);
+                return InvoiceQueryError(500, "INTERNAL_ERROR", "Receipt could not be retrieved.");
         }
     }
 
