@@ -11,6 +11,7 @@ using NSwag;
 using NSwag.Generation.Processors.Security;
 using Services.AccountService;
 using Services.MemberReportService;
+using Services.RevenueReportService;
 using Services.ScheduleQueryService;
 using Services.AccessTokenService;
 using Services.AuditLogService;
@@ -218,6 +219,7 @@ public class Program
         {
             containerBuilder.RegisterType<AccountService>().As<IAccountService>();
             containerBuilder.RegisterType<MemberReportService>().As<IMemberReportService>();
+            containerBuilder.RegisterType<RevenueReportService>().As<IRevenueReportService>();
             containerBuilder.RegisterType<ScheduleQueryService>().As<IScheduleQueryService>();
             containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
