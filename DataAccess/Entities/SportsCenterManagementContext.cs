@@ -413,7 +413,7 @@ public partial class SportsCenterManagementContext : DbContext
 
             entity.Property(e => e.Name).HasMaxLength(80);
             entity.Property(e => e.Location).HasMaxLength(120);
-            entity.Property(e => e.RoomType).HasMaxLength(20);
+            entity.Property(e => e.RoomType).HasMaxLength(50);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
         });

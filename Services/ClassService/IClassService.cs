@@ -25,6 +25,11 @@ public interface IClassService
         int id,
         UpdateClassAPIViewModel request);
 
+    Task<AddClassScheduleResultViewModel> AddScheduleAsync(
+        string actorAccountId,
+        int classId,
+        AddClassScheduleAPIViewModel request);
+
     Task<ClassViewModel> UpdateClassStatusAsync(
         string actorAccountId,
         int id,

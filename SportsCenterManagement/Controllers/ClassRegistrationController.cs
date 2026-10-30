@@ -84,6 +84,93 @@ public class ClassRegistrationController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
+    // --- Đăng ký theo lớp -------------------------------------------------
+    // Thành viên đăng ký cả lớp, không chọn từng buổi; hệ thống giữ chỗ cho mọi
+    // buổi còn ở tương lai của lớp trong một lượt.
+
+    [HttpGet("me/classes")]
+    [Authorize(Roles = "Member")]
+    public async Task<IActionResult> GetMyClassEnrollmentsAsync(
+        [FromQuery] bool includeCanceled = false,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        string? memberAccountId = GetActorAccountId();
+        if (memberAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        PagedResult<ClassEnrollmentViewModel> result = await _registrationService.GetMyClassEnrollmentsAsync(
+            memberAccountId, includeCanceled, page, pageSize);
+        return Ok(result);
+    }
+
+    [HttpPost("register-class")]
+    [Authorize(Roles = "Member")]
+    public async Task<IActionResult> RegisterClassAsync([FromBody] RegisterMemberClassAPIViewModel request)
+    {
+        string? memberAccountId = GetActorAccountId();
+        if (memberAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        ClassEnrollmentViewModel result = await _registrationService.RegisterClassAsync(
+            memberAccountId, request.ClassId, "MEMBER", memberAccountId);
+        return StatusCode(StatusCodes.Status201Created, result);
+    }
+
+    [HttpPost("counter-register-class")]
+    [Authorize(Roles = "Receptionist")]
+    public async Task<IActionResult> CounterRegisterClassAsync([FromBody] CounterRegisterClassAPIViewModel request)
+    {
+        string? staffAccountId = GetActorAccountId();
+        if (staffAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        ClassEnrollmentViewModel result = await _registrationService.RegisterClassAsync(
+            request.MemberAccountId, request.ClassId, "RECEPTIONIST", staffAccountId);
+        return StatusCode(StatusCodes.Status201Created, result);
+    }
+
+    [HttpPost("classes/{classId:int}/cancel")]
+    [Authorize(Roles = "Member")]
+    public async Task<IActionResult> CancelClassRegistrationAsync(
+        [FromRoute] int classId,
+        [FromBody] CancelRegistrationAPIViewModel request)
+    {
+        string? memberAccountId = GetActorAccountId();
+        if (memberAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        ClassEnrollmentViewModel result = await _registrationService.CancelClassRegistrationAsync(
+            memberAccountId, classId, request.Reason, memberAccountId, false);
+        return Ok(result);
+    }
+
+    [HttpPost("classes/{classId:int}/counter-cancel")]
+    [Authorize(Roles = "Receptionist")]
+    public async Task<IActionResult> CounterCancelClassRegistrationAsync(
+        [FromRoute] int classId,
+        [FromQuery] string memberAccountId,
+        [FromBody] CounterCancelRegistrationAPIViewModel request)
+    {
+        string? staffAccountId = GetActorAccountId();
+        if (staffAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        ClassEnrollmentViewModel result = await _registrationService.CancelClassRegistrationAsync(
+            memberAccountId, classId, request.Reason, staffAccountId, true);
+        return Ok(result);
+    }
+
     [HttpPost("{id:int}/cancel")]
     [Authorize(Roles = "Member")]
     public async Task<IActionResult> CancelRegistrationAsync(

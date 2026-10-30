@@ -133,7 +133,7 @@ public class RoomService : IRoomService
             Name = normalizedName,
             Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim(),
             Capacity = request.Capacity,
-            RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim().ToUpperInvariant(),
+            RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim(),
             IsActive = true,
             CreatedAt = now
         };
@@ -244,7 +244,7 @@ public class RoomService : IRoomService
         room.Name = normalizedName;
         room.Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim();
         room.Capacity = request.Capacity;
-        room.RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim().ToUpperInvariant();
+        room.RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim();
         room.UpdatedAt = now;
 
         IDbContextTransaction? transaction = operation.Transaction;
