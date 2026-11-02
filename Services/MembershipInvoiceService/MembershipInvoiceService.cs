@@ -93,13 +93,24 @@ public class MembershipInvoiceService : IMembershipInvoiceService
 
             string? staffFullName = staff.Receptionist?.FullName ?? staff.CenterManager?.FullName;
 
-            Member? member = await _context.Members
-                .FromSqlRaw(
-                    "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}",
-                    memberAccountId)
-                .Include(m => m.Account)
-                .ThenInclude(a => a.Role)
-                .FirstOrDefaultAsync();
+            Member? member;
+            if (_context.Database.IsSqlServer())
+            {
+                member = await _context.Members
+                    .FromSqlRaw(
+                        "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}",
+                        memberAccountId)
+                    .Include(m => m.Account)
+                    .ThenInclude(a => a.Role)
+                    .FirstOrDefaultAsync();
+            }
+            else
+            {
+                member = await _context.Members
+                    .Include(m => m.Account)
+                    .ThenInclude(a => a.Role)
+                    .FirstOrDefaultAsync(m => m.AccountId == memberAccountId);
+            }
 
             if (member is null || member.Account.Role.Name != "Member")
             {
@@ -158,6 +169,17 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             if (invoice.Status != "PENDING_PAYMENT")
             {
                 return (PayInvoiceResult.InvalidInvoiceState, null);
+            }
+
+            // Upgrade quotes include prorated credit valid only on the creation date.
+            if (string.Equals(invoice.Subscription.Kind, "UPGRADE", StringComparison.OrdinalIgnoreCase))
+            {
+                DateOnly invoiceCreatedDate = DateOnly.FromDateTime(
+                    TimeZoneInfo.ConvertTimeFromUtc(invoice.CreatedAt, vnTimeZone));
+                if (invoiceCreatedDate != today)
+                {
+                    return (PayInvoiceResult.UpgradeQuoteExpired, null);
+                }
             }
 
             MembershipPackage? package = await _context.MembershipPackages

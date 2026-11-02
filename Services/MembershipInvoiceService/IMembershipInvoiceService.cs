@@ -22,7 +22,8 @@ public enum PayInvoiceResult
     StaffLocked,
     StaffRoleNotAllowed,
     DataIntegrityViolation,
-    ConcurrencyConflict
+    ConcurrencyConflict,
+    UpgradeQuoteExpired
 }
 
 public enum GetReceiptResult

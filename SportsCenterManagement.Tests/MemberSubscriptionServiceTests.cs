@@ -301,10 +301,90 @@ public class MemberSubscriptionServiceTests
         Assert.Null(receipt);
     }
 
+    [Fact]
+    public async Task PayInvoice_ExpiredUpgradeQuote_IsRejectedWithUpgradeQuoteExpired()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(i => i.Subscription).SingleAsync();
+        invoice.Subscription.Kind = "UPGRADE";
+        invoice.CreatedAt = DateTime.UtcNow.AddDays(-2);
+        await fixture.Context.SaveChangesAsync();
+
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+        (Services.MembershipInvoiceService.PayInvoiceResult result, APIViewModel.MembershipInvoice.MembershipReceiptAPIViewModel? receipt) =
+            await service.PayInvoiceAsync(invoice.Id, fixture.Receptionist.Id, new APIViewModel.MembershipInvoice.PayMembershipInvoiceAPIViewModel
+            {
+                PaymentMethod = "CASH"
+            });
+
+        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.UpgradeQuoteExpired, result);
+        Assert.Null(receipt);
+    }
+
+    [Fact]
+    public async Task PayInvoice_AlreadyPaid_ReturnsAlreadyPaidWithoutModifyingState()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(i => i.Subscription).SingleAsync();
+        invoice.Status = "PAID";
+        invoice.Subscription.Status = "CONFIRMED";
+        invoice.PaidAt = DateTime.UtcNow.AddHours(-1);
+        invoice.PaidBy = fixture.Manager.Id;
+        await fixture.Context.SaveChangesAsync();
+
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+        (Services.MembershipInvoiceService.PayInvoiceResult result, _) =
+            await service.PayInvoiceAsync(invoice.Id, fixture.Receptionist.Id, new APIViewModel.MembershipInvoice.PayMembershipInvoiceAPIViewModel
+            {
+                PaymentMethod = "CASH"
+            });
+
+        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.AlreadyPaid, result);
+        fixture.Context.ChangeTracker.Clear();
+        MembershipInvoice fresh = await fixture.Context.MembershipInvoices.SingleAsync();
+        Assert.Equal(fixture.Manager.Id, fresh.PaidBy);
+    }
+
+    [Fact]
+    public async Task PayInvoice_Success_UpdatesPaidAndConfirmedAtomically()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(i => i.Subscription).SingleAsync();
+
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+        (Services.MembershipInvoiceService.PayInvoiceResult result, APIViewModel.MembershipInvoice.MembershipReceiptAPIViewModel? receipt) =
+            await service.PayInvoiceAsync(invoice.Id, fixture.Receptionist.Id, new APIViewModel.MembershipInvoice.PayMembershipInvoiceAPIViewModel
+            {
+                PaymentMethod = "CASH"
+            });
+
+        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.Success, result);
+        Assert.NotNull(receipt);
+        Assert.Equal("PAID", receipt.InvoiceStatus);
+        Assert.Equal("CONFIRMED", receipt.SubscriptionStatus);
+        Assert.Equal(fixture.Receptionist.Id, receipt.PaidByStaffId);
+
+        fixture.Context.ChangeTracker.Clear();
+        MembershipInvoice freshInvoice = await fixture.Context.MembershipInvoices.SingleAsync();
+        MemberSubscription freshSub = await fixture.Context.MemberSubscriptions.SingleAsync();
+        Assert.Equal("PAID", freshInvoice.Status);
+        Assert.Equal("CONFIRMED", freshSub.Status);
+        Assert.Equal(fixture.Receptionist.Id, freshInvoice.PaidBy);
+        Assert.NotNull(freshInvoice.PaidAt);
+    }
+
     private static Services.MembershipInvoiceService.MembershipInvoiceService CreateInvoiceService(
         MemberSubscriptionServiceTestFixture fixture)
     {
-        IConfiguration configuration = new ConfigurationBuilder().Build();
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["BusinessSettings:TimeZoneId"] = "SE Asia Standard Time"
+            })
+            .Build();
         return new Services.MembershipInvoiceService.MembershipInvoiceService(fixture.Context, configuration);
     }
     private static async Task AssertNoRegistrationWritesAsync(

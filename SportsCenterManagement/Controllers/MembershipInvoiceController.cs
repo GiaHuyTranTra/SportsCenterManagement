@@ -134,6 +134,8 @@ public class MembershipInvoiceController : ControllerBase
                 return Conflict("Invoice has already been paid.");
             case PayInvoiceResult.ConcurrencyConflict:
                 return Conflict("Data was modified by another transaction or deadlock occurred. Please retry.");
+            case PayInvoiceResult.UpgradeQuoteExpired:
+                return Conflict("Upgrade quote has expired. Cancel this invoice and create a new upgrade request.");
             case PayInvoiceResult.DataIntegrityViolation:
                 return StatusCode(StatusCodes.Status500InternalServerError, "Internal data integrity error.");
             default:
