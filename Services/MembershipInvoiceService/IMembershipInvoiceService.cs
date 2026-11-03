@@ -22,7 +22,12 @@ public enum PayInvoiceResult
     StaffLocked,
     StaffRoleNotAllowed,
     DataIntegrityViolation,
-    ConcurrencyConflict
+    ConcurrencyConflict,
+    InvalidConfirmation,
+    AmountMismatch,
+    PackageChanged,
+    QuoteExpired,
+    UnsupportedOrderKind
 }
 
 public enum GetReceiptResult

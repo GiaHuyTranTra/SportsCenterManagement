@@ -83,6 +83,13 @@ public class MembershipInvoiceController : ControllerBase
 
     [HttpPost("{invoiceId:int}/pay")]
     [Authorize(Roles = "Receptionist,CenterManager")]
+    [ProducesResponseType(typeof(MembershipReceiptAPIViewModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponseAPIViewModel), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponseAPIViewModel), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorResponseAPIViewModel), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorResponseAPIViewModel), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorResponseAPIViewModel), StatusCodes.Status423Locked)]
+    [ProducesResponseType(typeof(ApiErrorResponseAPIViewModel), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> PayInvoiceAsync(
         [FromRoute] int invoiceId,
         [FromBody] PayMembershipInvoiceAPIViewModel request)
@@ -95,50 +102,36 @@ public class MembershipInvoiceController : ControllerBase
         string? staffAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(staffAccountId))
         {
-            return Unauthorized();
+            return InvoiceQueryError(401, "UNAUTHORIZED", "The account could not be identified.");
         }
 
         (PayInvoiceResult result, MembershipReceiptAPIViewModel? receipt) =
             await _invoiceService.PayInvoiceAsync(invoiceId, staffAccountId, request);
 
-        switch (result)
+        return result switch
         {
-            case PayInvoiceResult.Success when receipt is not null:
-                return Ok(receipt);
-            case PayInvoiceResult.InvalidPaymentMethod:
-                return BadRequest("Invalid payment method. Allowed methods: CASH, BANK_TRANSFER, CARD.");
-            case PayInvoiceResult.InvalidInvoiceState:
-            case PayInvoiceResult.InvalidSubscriptionState:
-                return BadRequest("Invoice or subscription is not in PENDING_PAYMENT state.");
-            case PayInvoiceResult.InvoiceNotFound:
-                return NotFound("Membership invoice not found.");
-            case PayInvoiceResult.MemberNotFound:
-                return NotFound("Member account not found.");
-            case PayInvoiceResult.PackageNotFound:
-                return NotFound("Membership package not found.");
-            case PayInvoiceResult.StaffNotFound:
-                return NotFound("Staff account not found.");
-            case PayInvoiceResult.StaffRoleNotAllowed:
-                return StatusCode(StatusCodes.Status403Forbidden, "Staff account does not have required permissions.");
-            case PayInvoiceResult.StaffInactive:
-                return StatusCode(StatusCodes.Status403Forbidden, "Staff account is inactive.");
-            case PayInvoiceResult.MemberInactive:
-                return StatusCode(StatusCodes.Status403Forbidden, "Member account is inactive.");
-            case PayInvoiceResult.StaffLocked:
-                return StatusCode(StatusCodes.Status423Locked, "Staff account is locked.");
-            case PayInvoiceResult.MemberLocked:
-                return StatusCode(StatusCodes.Status423Locked, "Member account is locked.");
-            case PayInvoiceResult.PackageInactive:
-                return Conflict("Membership package is currently inactive.");
-            case PayInvoiceResult.AlreadyPaid:
-                return Conflict("Invoice has already been paid.");
-            case PayInvoiceResult.ConcurrencyConflict:
-                return Conflict("Data was modified by another transaction or deadlock occurred. Please retry.");
-            case PayInvoiceResult.DataIntegrityViolation:
-                return StatusCode(StatusCodes.Status500InternalServerError, "Internal data integrity error.");
-            default:
-                return StatusCode(StatusCodes.Status500InternalServerError);
-        }
+            PayInvoiceResult.Success when receipt is not null => Ok(receipt),
+            PayInvoiceResult.InvalidPaymentMethod => InvoiceQueryError(400, "CASH_ONLY", "Only CASH invoices can be collected through this endpoint."),
+            PayInvoiceResult.InvalidConfirmation => InvoiceQueryError(400, "INVALID_CASH_CONFIRMATION", "Confirm receipt of cash and supply a positive whole-VND amount."),
+            PayInvoiceResult.AmountMismatch => InvoiceQueryError(409, "PAYMENT_AMOUNT_MISMATCH", "The confirmed amount does not match the invoice. Reload the invoice."),
+            PayInvoiceResult.PackageChanged => InvoiceQueryError(409, "PACKAGE_CHANGED", "The package price or duration changed. Cancel the pending order and create a new one."),
+            PayInvoiceResult.QuoteExpired => InvoiceQueryError(409, "UPGRADE_QUOTE_EXPIRED", "The upgrade quote has expired. Create a new order."),
+            PayInvoiceResult.UnsupportedOrderKind => InvoiceQueryError(409, "ORDER_KIND_NOT_SUPPORTED", "This order requires a verified upgrade or change-package quote before collection."),
+            PayInvoiceResult.InvalidInvoiceState => InvoiceQueryError(409, "INVALID_INVOICE_STATE", "Invoice must be PENDING_PAYMENT."),
+            PayInvoiceResult.InvalidSubscriptionState => InvoiceQueryError(409, "INVALID_SUBSCRIPTION_STATE", "The pending subscription is not eligible for confirmation."),
+            PayInvoiceResult.InvoiceNotFound => InvoiceQueryError(404, "INVOICE_NOT_FOUND", "Membership invoice not found."),
+            PayInvoiceResult.MemberNotFound => InvoiceQueryError(404, "MEMBER_NOT_FOUND", "Member account not found."),
+            PayInvoiceResult.PackageNotFound => InvoiceQueryError(404, "PACKAGE_NOT_FOUND", "Membership package not found."),
+            PayInvoiceResult.StaffNotFound => InvoiceQueryError(403, "FORBIDDEN", "Staff account could not be verified."),
+            PayInvoiceResult.StaffRoleNotAllowed => InvoiceQueryError(403, "FORBIDDEN", "Staff account does not have required permissions."),
+            PayInvoiceResult.StaffInactive or PayInvoiceResult.MemberInactive => InvoiceQueryError(403, "ACCOUNT_INACTIVE", "The account is inactive or deleted."),
+            PayInvoiceResult.StaffLocked or PayInvoiceResult.MemberLocked => InvoiceQueryError(423, "ACCOUNT_LOCKED", "The account is locked."),
+            PayInvoiceResult.PackageInactive => InvoiceQueryError(409, "PACKAGE_INACTIVE", "Membership package is currently inactive."),
+            PayInvoiceResult.AlreadyPaid => InvoiceQueryError(409, "INVOICE_ALREADY_PAID", "Invoice has already been paid. Retrieve its receipt; do not collect cash again."),
+            PayInvoiceResult.ConcurrencyConflict => InvoiceQueryError(409, "PAYMENT_CONCURRENCY_CONFLICT", "Collection conflicted with another transaction. Reload the invoice and receipt."),
+            PayInvoiceResult.DataIntegrityViolation => InvoiceQueryError(500, "DATA_INTEGRITY_ERROR", "Invoice or subscription data is inconsistent."),
+            _ => InvoiceQueryError(500, "INTERNAL_ERROR", "Payment could not be confirmed.")
+        };
     }
 
     [HttpGet("{invoiceId:int}/receipt")]
