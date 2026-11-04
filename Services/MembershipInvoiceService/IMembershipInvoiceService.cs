@@ -56,6 +56,12 @@ public enum CancelInvoiceResult
 
 public interface IMembershipInvoiceService
 {
+    Task<VnpayCheckoutAPIViewModel> CreateVnpayCheckoutAsync(int invoiceId, string callerId, string clientIp);
+    Task<VnpayIpnAPIViewModel> ProcessVnpayIpnAsync(IReadOnlyDictionary<string, string> query);
+    Task<BankTransferInstructionsAPIViewModel> GetBankTransferInstructionsAsync(int invoiceId, string callerId);
+    Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmBankTransferAsync(
+        int invoiceId, string staffAccountId, ConfirmBankTransferAPIViewModel request);
+
     Task<PagedMembershipInvoiceAPIViewModel> SearchInvoicesAsync(
         string callerAccountId,
         string? memberId,

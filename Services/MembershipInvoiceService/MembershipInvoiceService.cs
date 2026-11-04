@@ -12,7 +12,7 @@ using Microsoft.Extensions.Configuration;
 
 namespace Services.MembershipInvoiceService;
 
-public class MembershipInvoiceService : IMembershipInvoiceService
+public partial class MembershipInvoiceService : IMembershipInvoiceService
 {
     private readonly SportsCenterManagementContext _context;
     private readonly IConfiguration _configuration;
@@ -30,13 +30,28 @@ public class MembershipInvoiceService : IMembershipInvoiceService
         string staffAccountId,
         PayMembershipInvoiceAPIViewModel request)
     {
+        return await ConfirmPaymentAsync(invoiceId, staffAccountId, request, "CASH");
+    }
+
+    public Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmBankTransferAsync(
+        int invoiceId, string staffAccountId, ConfirmBankTransferAPIViewModel request)
+    {
+        return ConfirmPaymentAsync(invoiceId, staffAccountId, new PayMembershipInvoiceAPIViewModel
+        {
+            PaymentMethod = "BANK_TRANSFER", Amount = request.Amount, ConfirmReceivedCash = request.ConfirmReceivedTransfer
+        }, "BANK_TRANSFER");
+    }
+
+    private async Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmPaymentAsync(
+        int invoiceId, string staffAccountId, PayMembershipInvoiceAPIViewModel request, string expectedMethod, string? providerEventId = null)
+    {
         if (string.IsNullOrWhiteSpace(request.PaymentMethod))
         {
             return (PayInvoiceResult.InvalidPaymentMethod, null);
         }
 
         string normalizedPaymentMethod = request.PaymentMethod.Trim().ToUpperInvariant();
-        if (normalizedPaymentMethod != "CASH")
+        if (normalizedPaymentMethod != expectedMethod)
         {
             return (PayInvoiceResult.InvalidPaymentMethod, null);
         }
@@ -179,7 +194,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             }
 
             today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vnTimeZone));
-            if (invoice.PaymentMethod != "CASH")
+            if (invoice.PaymentMethod != expectedMethod)
             {
                 return (PayInvoiceResult.InvalidPaymentMethod, null);
             }
@@ -263,10 +278,10 @@ public class MembershipInvoiceService : IMembershipInvoiceService
 
             _context.AuditLogs.Add(new AuditLog
             {
-                Id = Guid.NewGuid().ToString(), AccountId = staffAccountId,
+                Id = providerEventId ?? Guid.NewGuid().ToString(), AccountId = staffAccountId,
                 Action = "MEMBERSHIP_INVOICE_PAID", EntityType = "MembershipInvoice",
                 EntityId = invoice.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Description = "Cash collection confirmed; invoice PAID and subscription CONFIRMED.",
+                Description = expectedMethod + " collection confirmed; invoice PAID and subscription CONFIRMED.",
                 CreatedAt = nowUtc
             });
             await _context.SaveChangesAsync();

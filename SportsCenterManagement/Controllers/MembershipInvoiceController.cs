@@ -41,6 +41,24 @@ public class MembershipInvoiceController : ControllerBase
         return Ok(invoices);
     }
 
+    [HttpGet("{invoiceId:int}/bank-transfer")]
+    public async Task<IActionResult> GetBankTransferAsync(int invoiceId)
+    {
+        string? callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(callerId)) return InvoiceQueryError(401, "UNAUTHORIZED", "Account could not be identified.");
+        return Ok(await _invoiceService.GetBankTransferInstructionsAsync(invoiceId, callerId));
+    }
+
+    [HttpPost("{invoiceId:int}/confirm-bank-transfer")]
+    [Authorize(Roles = "Receptionist,CenterManager")]
+    public async Task<IActionResult> ConfirmBankTransferAsync(int invoiceId, [FromBody] ConfirmBankTransferAPIViewModel request)
+    {
+        string? callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(callerId)) return InvoiceQueryError(401, "UNAUTHORIZED", "Account could not be identified.");
+        (PayInvoiceResult result, MembershipReceiptAPIViewModel? receipt) = await _invoiceService.ConfirmBankTransferAsync(invoiceId, callerId, request);
+        return PaymentResponse(result, receipt, true);
+    }
+
     [HttpGet("search")]
     public async Task<IActionResult> SearchInvoicesAsync(
         [FromQuery] string? memberId = null,
@@ -108,11 +126,16 @@ public class MembershipInvoiceController : ControllerBase
         (PayInvoiceResult result, MembershipReceiptAPIViewModel? receipt) =
             await _invoiceService.PayInvoiceAsync(invoiceId, staffAccountId, request);
 
+        return PaymentResponse(result, receipt, false);
+    }
+
+    private IActionResult PaymentResponse(PayInvoiceResult result, MembershipReceiptAPIViewModel? receipt, bool bankTransfer)
+    {
         return result switch
         {
             PayInvoiceResult.Success when receipt is not null => Ok(receipt),
-            PayInvoiceResult.InvalidPaymentMethod => InvoiceQueryError(400, "CASH_ONLY", "Only CASH invoices can be collected through this endpoint."),
-            PayInvoiceResult.InvalidConfirmation => InvoiceQueryError(400, "INVALID_CASH_CONFIRMATION", "Confirm receipt of cash and supply a positive whole-VND amount."),
+            PayInvoiceResult.InvalidPaymentMethod => InvoiceQueryError(400, bankTransfer ? "BANK_TRANSFER_ONLY" : "CASH_ONLY", "Invoice method must match the confirmation endpoint."),
+            PayInvoiceResult.InvalidConfirmation => InvoiceQueryError(400, bankTransfer ? "INVALID_TRANSFER_CONFIRMATION" : "INVALID_CASH_CONFIRMATION", "Confirm receipt of funds and supply a positive whole-VND amount."),
             PayInvoiceResult.AmountMismatch => InvoiceQueryError(409, "PAYMENT_AMOUNT_MISMATCH", "The confirmed amount does not match the invoice. Reload the invoice."),
             PayInvoiceResult.PackageChanged => InvoiceQueryError(409, "PACKAGE_CHANGED", "The package price or duration changed. Cancel the pending order and create a new one."),
             PayInvoiceResult.QuoteExpired => InvoiceQueryError(409, "UPGRADE_QUOTE_EXPIRED", "The upgrade quote has expired. Create a new order."),
