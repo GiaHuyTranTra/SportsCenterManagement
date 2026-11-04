@@ -12,11 +12,28 @@ namespace Services.MembershipInvoiceService;
 
 public partial class MembershipInvoiceService
 {
+    public async Task<VnpayInvoiceStatusAPIViewModel> GetVnpayInvoiceStatusAsync(int invoiceId, string callerId)
+    {
+        Account? caller = await _context.Accounts.AsNoTracking().Include(item => item.Role).FirstOrDefaultAsync(item => item.Id == callerId);
+        if (caller is null || caller.DeletedAt != null || caller.Status != "Active" || caller.IsLocked ||
+            (caller.Role.Name != "Member" && caller.Role.Name != "Receptionist" && caller.Role.Name != "CenterManager"))
+            throw new BusinessRuleException("FORBIDDEN", "Account cannot view invoice status.", statusCode: 403);
+        VnpayInvoiceStatusAPIViewModel? status = await _context.MembershipInvoices.AsNoTracking()
+            .Where(item => item.Id == invoiceId && (caller.Role.Name != "Member" || item.MemberId == callerId))
+            .Select(item => new VnpayInvoiceStatusAPIViewModel
+            {
+                InvoiceId = item.Id, Status = item.Status, PaymentMethod = item.PaymentMethod, Amount = item.Amount,
+                IsDemo = _context.AuditLogs.Any(log => log.Action == DemoPaymentAuditAction &&
+                    log.EntityType == "MembershipInvoice" && log.EntityId == item.Id.ToString())
+            }).FirstOrDefaultAsync();
+        return status ?? throw new BusinessRuleException("INVOICE_NOT_FOUND", "Invoice not found.", statusCode: 404);
+    }
+
     private (string Merchant, string Secret, string Actor) VnpayConfiguration()
     {
-        string merchant = _configuration["VnpaySandbox:TmnCode"] ?? "";
-        string secret = _configuration["VnpaySandbox:HashSecret"] ?? "";
-        string actor = _configuration["VnpaySandbox:CollectorAccountId"] ?? "";
+        string merchant = (_configuration["VnpaySandbox:TmnCode"] ?? "").Trim();
+        string secret = (_configuration["VnpaySandbox:HashSecret"] ?? "").Trim();
+        string actor = (_configuration["VnpaySandbox:CollectorAccountId"] ?? "").Trim();
         if (_configuration["VnpaySandbox:Enabled"] != "true" || merchant.Length == 0 || secret.Length < 32 || actor.Length == 0)
             throw new BusinessRuleException("VNPAY_NOT_CONFIGURED", "Configure VNPAY sandbox credentials and integration account.", statusCode: 503);
         return (merchant, secret, actor);
@@ -45,6 +62,7 @@ public partial class MembershipInvoiceService
         if (!Uri.TryCreate(returnUrl, UriKind.Absolute, out Uri? uri) ||
             (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback)))
             throw new BusinessRuleException("VNPAY_NOT_CONFIGURED", "Configure an HTTPS or local development return URL.", statusCode: 503);
+        returnUrl = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(returnUrl, "invoiceId", invoiceId.ToString(CultureInfo.InvariantCulture));
         DateTime utc = DateTime.UtcNow;
         TimeZoneInfo zone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
         DateTime now = TimeZoneInfo.ConvertTimeFromUtc(utc, zone);

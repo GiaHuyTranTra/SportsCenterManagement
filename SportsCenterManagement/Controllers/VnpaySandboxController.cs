@@ -24,6 +24,15 @@ public class VnpaySandboxController : ControllerBase
         return Ok(checkout);
     }
 
+    [Authorize(Roles = "Member,Receptionist,CenterManager")]
+    [HttpGet("{invoiceId:int}/status")]
+    public async Task<IActionResult> StatusAsync(int invoiceId)
+    {
+        string? caller = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(caller)) return Unauthorized();
+        return Ok(await _service.GetVnpayInvoiceStatusAsync(invoiceId, caller));
+    }
+
     [AllowAnonymous]
     [HttpGet("ipn")]
     public async Task<IActionResult> IpnAsync()

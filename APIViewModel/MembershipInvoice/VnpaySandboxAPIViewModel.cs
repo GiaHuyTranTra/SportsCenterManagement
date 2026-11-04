@@ -10,6 +10,15 @@ public class VnpayCheckoutAPIViewModel
     public bool IsTestMode { get; set; } = true;
 }
 
+public class VnpayInvoiceStatusAPIViewModel
+{
+    public bool IsDemo { get; set; }
+    public int InvoiceId { get; set; }
+    public string Status { get; set; } = null!;
+    public string PaymentMethod { get; set; } = null!;
+    public decimal Amount { get; set; }
+}
+
 public class VnpayIpnAPIViewModel
 {
     [JsonPropertyName("RspCode")]

@@ -5,6 +5,7 @@ namespace APIViewModel.MembershipInvoice;
 
 public class MembershipReceiptAPIViewModel
 {
+    public bool IsDemo { get; set; }
     public int InvoiceId { get; set; }
 
     public string InvoiceNumber { get; set; } = null!;

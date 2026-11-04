@@ -56,7 +56,10 @@ public enum CancelInvoiceResult
 
 public interface IMembershipInvoiceService
 {
+    bool IsDemoPaymentEnabled();
+    Task<VnpayInvoiceStatusAPIViewModel> ConfirmDemoPaymentAsync(int invoiceId, string callerId, bool confirmSimulation);
     Task<VnpayCheckoutAPIViewModel> CreateVnpayCheckoutAsync(int invoiceId, string callerId, string clientIp);
+    Task<VnpayInvoiceStatusAPIViewModel> GetVnpayInvoiceStatusAsync(int invoiceId, string callerId);
     Task<VnpayIpnAPIViewModel> ProcessVnpayIpnAsync(IReadOnlyDictionary<string, string> query);
     Task<BankTransferInstructionsAPIViewModel> GetBankTransferInstructionsAsync(int invoiceId, string callerId);
     Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmBankTransferAsync(

@@ -9,6 +9,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace Services.MembershipInvoiceService;
 
@@ -16,13 +17,16 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
 {
     private readonly SportsCenterManagementContext _context;
     private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment? _environment;
 
     public MembershipInvoiceService(
         SportsCenterManagementContext context,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment? environment = null)
     {
         _context = context;
         _configuration = configuration;
+        _environment = environment;
     }
 
     public async Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> PayInvoiceAsync(
@@ -43,7 +47,7 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
     }
 
     private async Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmPaymentAsync(
-        int invoiceId, string staffAccountId, PayMembershipInvoiceAPIViewModel request, string expectedMethod, string? providerEventId = null)
+        int invoiceId, string staffAccountId, PayMembershipInvoiceAPIViewModel request, string expectedMethod, string? providerEventId = null, bool isDemo = false)
     {
         if (string.IsNullOrWhiteSpace(request.PaymentMethod))
         {
@@ -279,18 +283,20 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             _context.AuditLogs.Add(new AuditLog
             {
                 Id = providerEventId ?? Guid.NewGuid().ToString(), AccountId = staffAccountId,
-                Action = "MEMBERSHIP_INVOICE_PAID", EntityType = "MembershipInvoice",
+                Action = isDemo ? DemoPaymentAuditAction : "MEMBERSHIP_INVOICE_PAID", EntityType = "MembershipInvoice",
                 EntityId = invoice.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Description = expectedMethod + " collection confirmed; invoice PAID and subscription CONFIRMED.",
+                Description = isDemo ? "SIMULATED PAYMENT: no money transferred; test membership activated."
+                    : expectedMethod + " collection confirmed; invoice PAID and subscription CONFIRMED.",
                 CreatedAt = nowUtc
             });
             await _context.SaveChangesAsync();
 
-            List<string> benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+            List<string> benefits = Services.Utils.MembershipBenefits.Read(invoice.Subscription.Benefits)
                 ?? new List<string>();
 
             MembershipReceiptAPIViewModel receipt = new MembershipReceiptAPIViewModel
             {
+                IsDemo = isDemo,
                 InvoiceId = invoice.Id,
                 InvoiceNumber = invoice.InvoiceNumber,
                 Amount = invoice.Amount,
@@ -418,11 +424,13 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
 
         string? paidByStaffName = paidByStaff?.Receptionist?.FullName ?? paidByStaff?.CenterManager?.FullName;
 
-        List<string> benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+        List<string> benefits = Services.Utils.MembershipBenefits.Read(invoice.Subscription.Benefits)
             ?? new List<string>();
 
         MembershipReceiptAPIViewModel receipt = new MembershipReceiptAPIViewModel
         {
+            IsDemo = await _context.AuditLogs.AsNoTracking().AnyAsync(item =>
+                item.Id == "demo-payment-" + invoiceId && item.Action == DemoPaymentAuditAction),
             InvoiceId = invoice.Id,
             InvoiceNumber = invoice.InvoiceNumber,
             Amount = invoice.Amount,
@@ -548,6 +556,10 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             query = query.Skip((page.Value - 1) * pageSize).Take(pageSize);
         }
         List<MembershipInvoice> invoices = await query.ToListAsync();
+        string[] demoAuditIds = invoices.Select(item => "demo-payment-" + item.Id).ToArray();
+        HashSet<string> demoPayments = (await _context.AuditLogs.AsNoTracking()
+            .Where(item => demoAuditIds.Contains(item.Id) && item.Action == DemoPaymentAuditAction)
+            .Select(item => item.Id).ToListAsync()).ToHashSet(StringComparer.Ordinal);
 
         List<MembershipReceiptAPIViewModel> results = new List<MembershipReceiptAPIViewModel>();
         foreach (MembershipInvoice invoice in invoices)
@@ -564,7 +576,7 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             List<string> benefits;
             try
             {
-                benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+                benefits = Services.Utils.MembershipBenefits.Read(invoice.Subscription.Benefits)
                     ?? new List<string>();
             }
             catch
@@ -574,6 +586,7 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
 
             results.Add(new MembershipReceiptAPIViewModel
             {
+                IsDemo = demoPayments.Contains("demo-payment-" + invoice.Id),
                 InvoiceId = invoice.Id,
                 InvoiceNumber = invoice.InvoiceNumber,
                 Amount = invoice.Amount,

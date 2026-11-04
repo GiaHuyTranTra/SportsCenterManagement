@@ -12,6 +12,44 @@ namespace SportsCenterManagement.Tests;
 public class VnpaySandboxTests
 {
     [Fact]
+    public async Task CheckoutTrimsCopiedCredentialsBeforeSigning()
+    {
+        await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
+        MembershipInvoice invoice = fixture.AddInvoice(500000, "PENDING_PAYMENT", null, "BANK_TRANSFER");
+        await fixture.Context.SaveChangesAsync();
+        string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        MembershipInvoiceService service = Service(fixture, "\r\n" + secret + " \t", " TESTSHOP ");
+
+        VnpayCheckoutAPIViewModel checkout = await service.CreateVnpayCheckoutAsync(invoice.Id, fixture.Member.AccountId, "127.0.0.1");
+        string query = new Uri(checkout.PaymentUrl).Query.TrimStart('?');
+        string[] parts = query.Split("&vnp_SecureHash=", StringSplitOptions.None);
+        Assert.Equal(2, parts.Length);
+        string expected = Convert.ToHexString(HMACSHA512.HashData(
+            System.Text.Encoding.UTF8.GetBytes(secret), System.Text.Encoding.UTF8.GetBytes(parts[0]))).ToLowerInvariant();
+        Assert.Equal(expected, parts[1]);
+        Assert.Equal("TESTSHOP", QueryHelpers.ParseQuery(query)["vnp_TmnCode"].ToString());
+        Assert.Equal("PENDING_PAYMENT", invoice.Status);
+    }
+
+    [Fact]
+    public async Task StatusIsReadOnlyAndScopedToCaller()
+    {
+        await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
+        MembershipInvoice invoice = fixture.AddInvoice(500000, "PENDING_PAYMENT", null, "BANK_TRANSFER");
+        fixture.Context.Accounts.Add(new Account
+        {
+            Id = "foreign-member", Email = "foreign@example.com", PasswordHash = "unused", Status = "Active",
+            Role = fixture.Member.Account.Role, CreatedAt = DateTime.UtcNow
+        });
+        await fixture.Context.SaveChangesAsync();
+        MembershipInvoiceService service = Service(fixture, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
+        VnpayInvoiceStatusAPIViewModel status = await service.GetVnpayInvoiceStatusAsync(invoice.Id, fixture.Member.AccountId);
+        Assert.Equal("PENDING_PAYMENT", status.Status);
+        Assert.Equal("PENDING_PAYMENT", invoice.Subscription.Status);
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.GetVnpayInvoiceStatusAsync(invoice.Id, "foreign-member"));
+    }
+
+    [Fact]
     public async Task CheckoutAndSignedIpnSettleOnce()
     {
         await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
@@ -24,6 +62,7 @@ public class VnpaySandboxTests
         Dictionary<string, string> outbound = QueryHelpers.ParseQuery(new Uri(checkout.PaymentUrl).Query)
             .ToDictionary(item => item.Key, item => item.Value.ToString());
         Assert.Equal("50000000", outbound["vnp_Amount"]);
+        Assert.Contains("invoiceId=" + invoice.Id, outbound["vnp_ReturnUrl"]);
         Assert.Equal(MembershipInvoiceService.VnpaySign(outbound, secret), outbound["vnp_SecureHash"]);
         Assert.Equal("PENDING_PAYMENT", invoice.Status);
         Dictionary<string, string> ipn = Callback(checkout.TransactionReference, secret);
@@ -31,6 +70,8 @@ public class VnpaySandboxTests
         Assert.Equal("02", (await service.ProcessVnpayIpnAsync(ipn)).RspCode);
         Assert.Equal("PAID", invoice.Status);
         Assert.Equal("CONFIRMED", invoice.Subscription.Status);
+        Assert.Equal("PAID", (await service.GetVnpayInvoiceStatusAsync(invoice.Id, fixture.Member.AccountId)).Status);
+        Assert.Equal(GetReceiptResult.Success, (await service.GetReceiptAsync(invoice.Id, fixture.Member.AccountId)).Result);
         Assert.Single(await fixture.Context.AuditLogs.Where(item => item.Action == "MEMBERSHIP_INVOICE_PAID").ToListAsync());
     }
 
@@ -91,12 +132,12 @@ public class VnpaySandboxTests
         return values;
     }
 
-    private static MembershipInvoiceService Service(ReportTestFixture fixture, string secret)
+    private static MembershipInvoiceService Service(ReportTestFixture fixture, string secret, string merchant = "TESTSHOP")
     {
         IConfiguration config = new ConfigurationBuilder().AddConfiguration(fixture.Configuration).AddInMemoryCollection(
             new Dictionary<string, string?>
             {
-                ["VnpaySandbox:Enabled"] = "true", ["VnpaySandbox:TmnCode"] = "TESTSHOP",
+                ["VnpaySandbox:Enabled"] = "true", ["VnpaySandbox:TmnCode"] = merchant,
                 ["VnpaySandbox:HashSecret"] = secret, ["VnpaySandbox:CollectorAccountId"] = fixture.Manager.Id,
                 ["VnpaySandbox:ReturnUrl"] = "http://localhost:5173/payments/result"
             }).Build();
