@@ -32,18 +32,6 @@ public partial class MembershipInvoiceService
                 package.DurationMonths == invoice.Subscription.DurationMonths && package.DurationMonths > 0))
             throw new BusinessRuleException("PACKAGE_CHANGED", "Reload packages and create a valid order before transferring.", statusCode: 409);
 
-        if (_configuration["SePayTest:Enabled"] == "true")
-        {
-            string testReceiver = _configuration["SePayTest:AccountNumber"]?.Trim() ?? "";
-            if (testReceiver.Length == 0)
-                throw new BusinessRuleException("SEPAY_NOT_CONFIGURED", "Configure the SePay test receiver.", statusCode: 503);
-            return new BankTransferInstructionsAPIViewModel
-            {
-                InvoiceId = invoice.Id, Amount = invoice.Amount, BankId = "SEPAY_TEST",
-                AccountNumber = testReceiver, AccountName = "SEPAY TEST MODE", IsTestMode = true,
-                TransferContent = "SCMS" + invoice.Id.ToString(CultureInfo.InvariantCulture)
-            };
-        }
         string bank = _configuration["BankTransfer:BankId"]?.Trim() ?? "";
         string number = _configuration["BankTransfer:AccountNumber"]?.Trim() ?? "";
         string name = _configuration["BankTransfer:AccountName"]?.Trim() ?? "";

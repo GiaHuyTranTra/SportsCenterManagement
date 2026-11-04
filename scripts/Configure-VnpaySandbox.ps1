@@ -20,7 +20,6 @@ try {
         'VnpaySandbox:HashSecret' = $taskSecret
         'VnpaySandbox:CollectorAccountId' = $taskCollector.Trim()
         'VnpaySandbox:ReturnUrl' = $taskReturnUrl.Trim()
-        'SePayTest:Enabled' = 'false'
     }
     # stdin avoids exposing the secret in command arguments or source files.
     $taskSettings | ConvertTo-Json -Compress | dotnet user-secrets set --project $taskProject

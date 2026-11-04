@@ -1,9 +1,8 @@
 # Manual bank-transfer payment
 
-Optional automatic sandbox callbacks are now available through the separate
-SePay Test mode adapter; see SEPAY_TEST_MODE.md. When enabled, instructions
-return isTestMode=true and no real bank QR. The manual flow below is unchanged
-when the adapter is disabled.
+Automatic sandbox callbacks use the separate VNPAY integration; see
+VNPAY_SANDBOX.md. The local presentation flow is documented in DEMO_PAYMENTS.md.
+The manual transfer endpoints below use configured receiving bank details.
 
 Base: ef8184a (latest master, including UC34). Backend extension only; FE must
 integrate these endpoints. No credentials, receiving accounts or secrets are

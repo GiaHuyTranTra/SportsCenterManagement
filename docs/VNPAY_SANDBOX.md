@@ -36,7 +36,7 @@ References:
 This extends the existing BANK_TRANSFER pending invoice flow with VNPAY domestic
 bank checkout (VNBANK). It is a payment gateway, not direct bank-account VietQR.
 No new package/schema, no credentials in source, no live payment host.
-Previous manual/SePay work is preserved; keep SePayTest__Enabled unset/false.
+Manual bank-transfer confirmation uses its separate staff-only endpoint.
 
 The current sandbox merchant rejected a diagnostic `vnp_BankCode=VNPAYQR`
 checkout with code 76 (unsupported bank/payment method) on 2026-11-04. Domestic
@@ -100,7 +100,6 @@ Failed/canceled gateway outcomes leave orders pending for another checkout or
 the existing cancellation API. Late success for an already settled/canceled
 order never activates twice; investigate extra credits manually. Refunds,
 querydr recovery/reconciliation jobs and production rollout are outside scope.
-SePay adapter is retained disabled for existing work; it is not used by VNPAY.
 Cash and manual confirmation endpoints retain their separate method checks.
 Revenue reporting remains CASH-only under its existing contract; sandbox bank
 payments do not become real revenue automatically.
