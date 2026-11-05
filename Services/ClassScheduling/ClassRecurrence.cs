@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Services.ScheduleQueryService;
 
 namespace Services.ClassScheduling;
@@ -40,6 +40,14 @@ public sealed record ClassRecurrence(
         if (parsedStartTime >= parsedEndTime)
         {
             throw Invalid("endTime", "Giờ kết thúc phải sau giờ bắt đầu.");
+        }
+
+        if (!CentreTimeSlots.IsCentreSlot(parsedStartTime, parsedEndTime))
+        {
+            throw Invalid(
+                "startTime",
+                "Buổi học phải nằm trong khung giờ cố định của trung tâm. "
+                    + "Khung giờ hợp lệ: " + CentreTimeSlots.Describe() + ".");
         }
 
         if (parsedStart < today)

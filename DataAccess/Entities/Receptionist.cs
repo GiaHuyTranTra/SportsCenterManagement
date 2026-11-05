@@ -11,6 +11,8 @@ public partial class Receptionist
 
     public string? WorkShift { get; set; }
 
+    public string? AvatarUrl { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public virtual Account Account { get; set; } = null!;

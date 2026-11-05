@@ -33,6 +33,7 @@ using Services.ClassSessionService;
 using Services.ClassRegistrationService;
 using Services.NotificationService;
 using Services.Utils;
+using SportsCenterManagement.BackgroundJobs;
 using SportsCenterManagement.Filter;
 using SportsCenterManagement.Middleware;
 using System.Collections.Generic;
@@ -85,6 +86,8 @@ public class Program
 
         builder.Services.AddDbContext<SportsCenterManagementContext>(options =>
             options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+        builder.Services.AddHostedService<SessionCompletionService>();
 
         builder.Services.Configure<JwtOptions>(
             builder.Configuration.GetSection(JwtOptions.SectionName));

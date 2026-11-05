@@ -1921,6 +1921,13 @@ public class TrainingAndOperationsController : ControllerBase
             .Distinct()
             .ToList();
 
+        // The guard above counts the raw input, so ["FOO"] slipped through and
+        // was stored as an empty role list — a feature nobody may open.
+        if (normalizedRoles.Count == 0)
+        {
+            return BadRequest("Chức năng phải có ít nhất 1 vai trò hợp lệ: CENTER_MANAGER, RECEPTIONIST, COACH hoặc MEMBER.");
+        }
+
         if (featureKey == "permissions" && !normalizedRoles.Contains("CENTER_MANAGER"))
         {
             normalizedRoles.Add("CENTER_MANAGER");

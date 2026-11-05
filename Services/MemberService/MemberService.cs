@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -9,6 +9,7 @@ using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Services.PasswordHashService;
+using Services.Utils;
 
 namespace Services.MemberService;
 
@@ -396,7 +397,7 @@ public class MemberService : IMemberService
         }
 
         if (normalizedDateOfBirth.HasValue &&
-            normalizedDateOfBirth.Value > DateOnly.FromDateTime(DateTime.Today))
+            !BirthDateRules.IsAcceptable(normalizedDateOfBirth.Value))
         {
             return UpdateMemberResult.InvalidData;
         }
@@ -834,7 +835,7 @@ public class MemberService : IMemberService
             !new EmailAddressAttribute().IsValid(normalizedEmail) ||
             !validPhone ||
             !dateOfBirth.HasValue ||
-            dateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow) ||
+            !BirthDateRules.IsAcceptable(dateOfBirth.Value) ||
             !isActive.HasValue)
         {
             return (null, null, null);

@@ -105,7 +105,7 @@ public partial class AuthenticationIntegrationTests
                 coachId = "coach-account", roomId,
                 startDate = date.ToString("yyyy-MM-dd"), endDate = date.AddDays(7).ToString("yyyy-MM-dd"),
                 daysOfWeek = new[] { (int)date.DayOfWeek },
-                startTime = "14:00", endTime = "15:00", sessionCapacity = 3
+                startTime = "14:00", endTime = "15:30", sessionCapacity = 3
             }
         });
 

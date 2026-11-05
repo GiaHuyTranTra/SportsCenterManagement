@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -437,19 +437,21 @@ public class MembershipInvoiceService : IMembershipInvoiceService
         string? search = null, string? paymentMethod = null)
     {
         PagedMembershipInvoiceAPIViewModel result = await QueryInvoicesAsync(
-            staffAccountId, memberId, status, search, paymentMethod);
+            staffAccountId, memberId, status, search, paymentMethod, null, 20, null, null);
         return result.Items;
     }
 
     public Task<PagedMembershipInvoiceAPIViewModel> SearchInvoicesAsync(
         string callerAccountId, string? memberId, string? status, string? search,
-        string? paymentMethod, int page, int pageSize)
+        string? paymentMethod, int page, int pageSize,
+        DateOnly? fromDate = null, DateOnly? toDate = null)
     {
         if (page < 1 || pageSize < 1 || pageSize > 100 || page > int.MaxValue / pageSize)
         {
             throw new ArgumentOutOfRangeException(nameof(page));
         }
-        return QueryInvoicesAsync(callerAccountId, memberId, status, search, paymentMethod, page, pageSize);
+        return QueryInvoicesAsync(
+            callerAccountId, memberId, status, search, paymentMethod, page, pageSize, fromDate, toDate);
     }
 
     private async Task<PagedMembershipInvoiceAPIViewModel> QueryInvoicesAsync(
@@ -457,7 +459,8 @@ public class MembershipInvoiceService : IMembershipInvoiceService
         string? memberId = null,
         string? status = null,
         string? search = null,
-        string? paymentMethod = null, int? page = null, int pageSize = 20)
+        string? paymentMethod = null, int? page = null, int pageSize = 20,
+        DateOnly? fromDate = null, DateOnly? toDate = null)
     {
         Account? caller = await _context.Accounts
             .Include(a => a.Role)
@@ -521,7 +524,40 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 i.Member.MemberCode.Contains(trimmedSearch));
         }
 
+        if (fromDate.HasValue || toDate.HasValue)
+        {
+            // CreatedAt is stored in UTC; the counter filters by the centre's
+            // own calendar day, so the bounds are converted the same way the
+            // revenue report converts them.
+            TimeZoneInfo centreTimeZone = TimeZoneInfo.FindSystemTimeZoneById(
+                _configuration["BusinessSettings:TimeZoneId"]
+                    ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured."));
+
+            if (fromDate.HasValue)
+            {
+                DateTime fromUtc = TimeZoneInfo.ConvertTimeToUtc(
+                    fromDate.Value.ToDateTime(TimeOnly.MinValue), centreTimeZone);
+                query = query.Where(i => i.CreatedAt >= fromUtc);
+            }
+
+            if (toDate.HasValue)
+            {
+                DateTime toUtcExclusive = TimeZoneInfo.ConvertTimeToUtc(
+                    toDate.Value.AddDays(1).ToDateTime(TimeOnly.MinValue), centreTimeZone);
+                query = query.Where(i => i.CreatedAt < toUtcExclusive);
+            }
+        }
+
         int totalItems = await query.CountAsync();
+        MembershipInvoiceSummaryAPIViewModel summary = new MembershipInvoiceSummaryAPIViewModel
+        {
+            PaidCount = await query.CountAsync(i => i.Status == "PAID"),
+            PaidAmount = await query.Where(i => i.Status == "PAID").SumAsync(i => (decimal?)i.Amount) ?? 0m,
+            PendingCount = await query.CountAsync(i => i.Status == "PENDING_PAYMENT"),
+            PendingAmount = await query.Where(i => i.Status == "PENDING_PAYMENT").SumAsync(i => (decimal?)i.Amount) ?? 0m,
+            CanceledCount = await query.CountAsync(i => i.Status == "CANCELED"),
+            CanceledAmount = await query.Where(i => i.Status == "CANCELED").SumAsync(i => (decimal?)i.Amount) ?? 0m
+        };
         query = query.OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id);
         if (page.HasValue)
         {
@@ -583,7 +619,14 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             });
         }
 
-        return new PagedMembershipInvoiceAPIViewModel { Items = results, Page = page ?? 1, PageSize = pageSize, TotalItems = totalItems };
+        return new PagedMembershipInvoiceAPIViewModel
+        {
+            Items = results,
+            Page = page ?? 1,
+            PageSize = pageSize,
+            TotalItems = totalItems,
+            Summary = summary
+        };
     }
 
     public async Task<CancelInvoiceResult> CancelPendingInvoiceAsync(

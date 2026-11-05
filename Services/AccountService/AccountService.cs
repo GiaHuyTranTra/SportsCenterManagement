@@ -1,4 +1,4 @@
-using APIViewModel.Account;
+﻿using APIViewModel.Account;
 using APIViewModel.CenterManager;
 using APIViewModel.AccountProfile;
 using APIViewModel.Coach;
@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Services.PasswordHashService;
 using System.Data;
+using Services.Utils;
 
 namespace Services.AccountService;
 
@@ -399,6 +400,8 @@ public class AccountService : IAccountService
         {
             case "CenterManager" when account.CenterManager is not null:
                 profile.FullName = account.CenterManager.FullName;
+                profile.DateOfBirth = account.CenterManager.DateOfBirth;
+                profile.AvatarUrl = account.CenterManager.AvatarUrl;
                 break;
             case "Coach" when account.Coach is not null:
                 profile.FullName = account.Coach.FullName;
@@ -418,6 +421,7 @@ public class AccountService : IAccountService
                 break;
             case "Receptionist" when account.Receptionist is not null:
                 profile.FullName = account.Receptionist.FullName;
+                profile.AvatarUrl = account.Receptionist.AvatarUrl;
                 profile.WorkShift = account.Receptionist.WorkShift;
                 break;
             case "CenterManager":
@@ -450,6 +454,7 @@ public class AccountService : IAccountService
         string? normalizedFullName = null;
         string? normalizedPhone = null;
         string? normalizedAvatarUrl = null;
+        string? normalizedSpecialization = null;
         string? normalizedWorkSchedule = null;
         string? normalizedWorkShift = null;
         DateOnly? normalizedDateOfBirth = request.DateOfBirth;
@@ -478,7 +483,7 @@ public class AccountService : IAccountService
         }
 
         if (normalizedDateOfBirth.HasValue &&
-            normalizedDateOfBirth.Value > DateOnly.FromDateTime(DateTime.Today))
+            !BirthDateRules.IsAcceptable(normalizedDateOfBirth.Value))
         {
             return UpdateCurrentProfileResult.InvalidData;
         }
@@ -486,6 +491,11 @@ public class AccountService : IAccountService
         if (request.AvatarUrl is not null)
         {
             normalizedAvatarUrl = NormalizeOptionalText(request.AvatarUrl);
+        }
+
+        if (request.Specialization is not null)
+        {
+            normalizedSpecialization = NormalizeOptionalText(request.Specialization);
         }
 
         if (request.WorkSchedule is not null)
@@ -513,6 +523,11 @@ public class AccountService : IAccountService
             return UpdateCurrentProfileResult.AccountNotFound;
         }
 
+        // A field is rejected only when the role's profile table has no column
+        // for it. dbo.CenterManager and dbo.Receptionist both carry AvatarUrl,
+        // dbo.CenterManager carries DateOfBirth, and dbo.Coach carries
+        // Specialization — refusing those made the profile screen unsaveable
+        // for every role except Member.
         bool hasInvalidField = account.Role.Name switch
         {
             "Member" => request.Specialization is not null ||
@@ -520,15 +535,11 @@ public class AccountService : IAccountService
                 request.WorkShift is not null,
             "Coach" => request.DateOfBirth.HasValue ||
                 request.AvatarUrl is not null ||
-                request.Specialization is not null ||
                 request.WorkShift is not null,
             "Receptionist" => request.DateOfBirth.HasValue ||
-                request.AvatarUrl is not null ||
                 request.Specialization is not null ||
                 request.WorkSchedule is not null,
-            "CenterManager" => request.DateOfBirth.HasValue ||
-                request.AvatarUrl is not null ||
-                request.Specialization is not null ||
+            "CenterManager" => request.Specialization is not null ||
                 request.WorkSchedule is not null ||
                 request.WorkShift is not null,
             _ => false
@@ -577,11 +588,23 @@ public class AccountService : IAccountService
                 {
                     account.CenterManager!.FullName = normalizedFullName!;
                 }
+                if (request.DateOfBirth.HasValue)
+                {
+                    account.CenterManager!.DateOfBirth = normalizedDateOfBirth;
+                }
+                if (request.AvatarUrl is not null)
+                {
+                    account.CenterManager!.AvatarUrl = normalizedAvatarUrl;
+                }
                 break;
             case "Coach":
                 if (request.FullName is not null)
                 {
                     account.Coach!.FullName = normalizedFullName!;
+                }
+                if (request.Specialization is not null)
+                {
+                    account.Coach!.Specialization = normalizedSpecialization;
                 }
                 if (request.WorkSchedule is not null)
                 {
@@ -606,6 +629,10 @@ public class AccountService : IAccountService
                 if (request.FullName is not null)
                 {
                     account.Receptionist!.FullName = normalizedFullName!;
+                }
+                if (request.AvatarUrl is not null)
+                {
+                    account.Receptionist!.AvatarUrl = normalizedAvatarUrl;
                 }
                 if (request.WorkShift is not null)
                 {

@@ -9,6 +9,10 @@ public partial class CenterManager
 
     public string FullName { get; set; } = null!;
 
+    public DateOnly? DateOfBirth { get; set; }
+
+    public string? AvatarUrl { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public virtual Account Account { get; set; } = null!;

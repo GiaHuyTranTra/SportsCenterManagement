@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
@@ -23,6 +23,10 @@ public class Sprint3LiveE2ETests
     private const string SqlServerConnectionString =
         "Server=.\\SQLEXPRESS;Database=SportsCenterManagementSprint2;Trusted_Connection=True;TrustServerCertificate=True;";
     private const string SigningKey = "SportsCenterDevKey_32chars_Min!X";
+
+    private const string SeededReceptionistId = "acc-rec-001";
+    private const int SeededTrialPackageId = 1;
+    private const decimal SeededTrialPackagePrice = 350000m;
 
     private static string GenerateToken(string accountId, string email, string role)
     {
@@ -51,9 +55,12 @@ public class Sprint3LiveE2ETests
     public async Task LiveApi_UC33_CounterRegistration_And_UC35_InvoiceSearchAndReceipt_WorksWithRealDatabase()
     {
         using HttpClient client = new HttpClient { BaseAddress = new Uri(LiveApiBaseUrl) };
+        // Identifiers come from the seeded dataset
+        // (Database/2026-11-06-titan-arena-seed.sql); the previous hard-coded
+        // GUID belonged to a throwaway test account that no longer exists.
         string receptionistToken = GenerateToken(
-            "2aa3de02-4be0-46a4-b5b4-70970dc957c6",
-            "recept.312783@sportscenter.local",
+            SeededReceptionistId,
+            "makitonati@gmail.com",
             "Receptionist");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", receptionistToken);
 
@@ -70,8 +77,8 @@ public class Sprint3LiveE2ETests
             email = testEmail,
             phone = testPhone,
             dateOfBirth = "1998-08-18",
-            packageId = 12,
-            expectedPrice = 350000m,
+            packageId = SeededTrialPackageId,
+            expectedPrice = SeededTrialPackagePrice,
             paymentMethod = "CASH"
         };
 
@@ -164,8 +171,8 @@ public class Sprint3LiveE2ETests
 
         Assert.NotNull(receiptData);
         Assert.Equal(invoiceNumber, receiptData.InvoiceNumber);
-        Assert.Equal(350000m, receiptData.Amount);
-        Assert.Equal(12, receiptData.PackageId);
+        Assert.Equal(SeededTrialPackagePrice, receiptData.Amount);
+        Assert.Equal(SeededTrialPackageId, receiptData.PackageId);
         Assert.Equal(memberCode, receiptData.MemberCode);
         Assert.Equal("PAID", receiptData.InvoiceStatus);
         Assert.Equal("CONFIRMED", receiptData.SubscriptionStatus);
@@ -188,7 +195,7 @@ public class Sprint3LiveE2ETests
             Assert.True(await reader.ReadAsync());
             Assert.Equal("PAID", reader["InvoiceStatus"].ToString());
             Assert.Equal("CONFIRMED", reader["SubStatus"].ToString());
-            Assert.Equal("2aa3de02-4be0-46a4-b5b4-70970dc957c6", reader["PaidBy"].ToString());
+            Assert.Equal(SeededReceptionistId, reader["PaidBy"].ToString());
         }
     }
 }

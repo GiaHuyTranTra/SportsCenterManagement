@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
@@ -48,7 +48,9 @@ public class MembershipInvoiceController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? paymentMethod = null,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] DateOnly? fromDate = null,
+        [FromQuery] DateOnly? toDate = null)
     {
         string? callerAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(callerAccountId))
@@ -62,13 +64,15 @@ public class MembershipInvoiceController : ControllerBase
             (!string.IsNullOrEmpty(normalizedStatus) &&
              normalizedStatus != "PENDING_PAYMENT" && normalizedStatus != "PAID" && normalizedStatus != "CANCELED") ||
             (!string.IsNullOrEmpty(normalizedMethod) &&
-             normalizedMethod != "CASH" && normalizedMethod != "CARD" && normalizedMethod != "BANK_TRANSFER"))
+             normalizedMethod != "CASH" && normalizedMethod != "CARD" && normalizedMethod != "BANK_TRANSFER") ||
+            (fromDate.HasValue && toDate.HasValue && fromDate > toDate))
         {
             return InvoiceQueryError(400, "INVALID_INVOICE_FILTER", "Invalid invoice filters or pagination.");
         }
 
         PagedMembershipInvoiceAPIViewModel result = await _invoiceService.SearchInvoicesAsync(
-            callerAccountId, memberId, normalizedStatus, search, normalizedMethod, page, pageSize);
+            callerAccountId, memberId, normalizedStatus, search, normalizedMethod, page, pageSize,
+            fromDate, toDate);
         return Ok(result);
     }
 

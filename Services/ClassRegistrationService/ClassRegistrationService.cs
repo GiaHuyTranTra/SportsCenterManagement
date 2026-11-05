@@ -155,9 +155,16 @@ public class ClassRegistrationService : IClassRegistrationService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
+        if (session.Status == "CANCELED")
         {
             throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy.");
+        }
+
+        // A COMPLETED session took place; telling the member it was cancelled
+        // is wrong, so it shares the "already started or past" answer.
+        if (session.Status != "SCHEDULED")
+        {
+            throw new BusinessRuleException("SESSION_ALREADY_STARTED", "Không thể đăng ký buổi học đã bắt đầu hoặc đã qua.");
         }
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);

@@ -1,4 +1,4 @@
-using Services.ClassScheduling;
+﻿using Services.ClassScheduling;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -309,10 +309,7 @@ public class ClassSessionService : IClassSessionService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
-        {
-            throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy không thể chỉnh sửa.");
-        }
+        EnsureSessionIsScheduled(session, "Buổi học đã bị hủy không thể chỉnh sửa.", "Buổi học đã diễn ra, không thể chỉnh sửa.");
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
@@ -563,10 +560,7 @@ public class ClassSessionService : IClassSessionService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
-        {
-            throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy không thể đổi huấn luyện viên.");
-        }
+        EnsureSessionIsScheduled(session, "Buổi học đã bị hủy không thể đổi huấn luyện viên.", "Buổi học đã diễn ra, không thể đổi huấn luyện viên.");
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
@@ -796,10 +790,7 @@ public class ClassSessionService : IClassSessionService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
-        {
-            throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy trước đó.");
-        }
+        EnsureSessionIsScheduled(session, "Buổi học đã bị hủy trước đó.", "Buổi học đã diễn ra, không thể hủy.");
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
@@ -967,6 +958,27 @@ public class ClassSessionService : IClassSessionService
         };
     }
 
+    /// <summary>
+    /// Only a SCHEDULED session can be edited, reassigned or cancelled. A
+    /// COMPLETED one took place, so it is reported as such instead of being
+    /// called "cancelled".
+    /// </summary>
+    private static void EnsureSessionIsScheduled(
+        ClassSession session,
+        string cancelledMessage,
+        string completedMessage)
+    {
+        if (session.Status == "CANCELED")
+        {
+            throw new BusinessRuleException("SESSION_CANCELLED", cancelledMessage);
+        }
+
+        if (session.Status != "SCHEDULED")
+        {
+            throw new BusinessRuleException("SESSION_ALREADY_STARTED", completedMessage);
+        }
+    }
+
     private static (DateTime sessionDate, TimeSpan startTime, TimeSpan endTime) ParseSessionTimes(
         string dateStr,
         string startTimeStr,
@@ -1002,6 +1014,17 @@ public class ClassSessionService : IClassSessionService
                 "VALIDATION_ERROR",
                 "Giờ kết thúc phải sau giờ bắt đầu.",
                 new Dictionary<string, string[]> { { "endTime", new[] { "Giờ kết thúc phải sau giờ bắt đầu." } } });
+        }
+
+        if (!CentreTimeSlots.IsCentreSlot(startTime, endTime))
+        {
+            throw new BusinessRuleException(
+                "SESSION_TIME_NOT_A_SLOT",
+                "Buổi học phải nằm trong khung giờ cố định của trung tâm.",
+                new Dictionary<string, string[]>
+                {
+                    { "startTime", new[] { "Khung giờ hợp lệ: " + CentreTimeSlots.Describe() + "." } }
+                });
         }
 
         return (sessionDate.Date, startTime, endTime);

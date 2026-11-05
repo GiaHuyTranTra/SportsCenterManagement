@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
 
@@ -59,7 +59,9 @@ public interface IMembershipInvoiceService
         string? search,
         string? paymentMethod,
         int page,
-        int pageSize);
+        int pageSize,
+        DateOnly? fromDate = null,
+        DateOnly? toDate = null);
 
     Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> PayInvoiceAsync(
         int invoiceId,

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using APIViewModel;
@@ -48,8 +48,8 @@ public partial class ClassSessionServiceTests
             CoachId = "coach-1",
             RoomId = 2, // different room, same coach
             Date = futureDate.ToString("yyyy-MM-dd"),
-            StartTime = "09:30",
-            EndTime = "10:30",
+            StartTime = "09:00", // SLOT_3, the slot the coach already teaches
+            EndTime = "10:00",
             Capacity = 10
         };
 
@@ -92,16 +92,16 @@ public partial class ClassSessionServiceTests
             CoachId = "coach-1",
             RoomId = 1,
             Date = futureDate.ToString("yyyy-MM-dd"),
-            StartTime = "10:00", // Exactly adjacent at 10:00
-            EndTime = "11:00",
+            StartTime = "14:00", // SLOT_4, starts after the 10:00 boundary
+            EndTime = "15:30",
             Capacity = 10
         };
 
         ClassSessionViewDto result = await service.CreateSessionAsync("manager-1", request);
 
         Assert.NotNull(result);
-        Assert.Equal("10:00", result.StartTime);
-        Assert.Equal("11:00", result.EndTime);
+        Assert.Equal("14:00", result.StartTime);
+        Assert.Equal("15:30", result.EndTime);
     }
 
     [Fact]
@@ -137,8 +137,8 @@ public partial class ClassSessionServiceTests
             CoachId = "coach-2", // different coach, same room
             RoomId = 1,
             Date = futureDate.ToString("yyyy-MM-dd"),
-            StartTime = "15:00",
-            EndTime = "16:00",
+            StartTime = "14:00", // SLOT_4, already taken in this room
+            EndTime = "15:30",
             Capacity = 10
         };
 
@@ -327,7 +327,7 @@ public partial class ClassSessionServiceTests
             RoomId = 2,
             SessionDate = futureDate,
             StartTime = new TimeSpan(14, 0, 0),
-            EndTime = new TimeSpan(15, 0, 0),
+            EndTime = new TimeSpan(15, 30, 0),
             Capacity = 10,
             BookedCount = 1,
             Status = "SCHEDULED"
@@ -371,7 +371,7 @@ public partial class ClassSessionServiceTests
             RoomId = 1,
             Date = futureDate.ToString("yyyy-MM-dd"),
             StartTime = "14:00",
-            EndTime = "15:00",
+            EndTime = "15:30",
             Capacity = 10
         };
 
@@ -391,7 +391,7 @@ public partial class ClassSessionServiceTests
 
         ClassSession reloaded2 = await context.ClassSessions.FirstAsync(s => s.Id == 20);
         Assert.Equal(new TimeSpan(14, 0, 0), reloaded2.StartTime);
-        Assert.Equal(new TimeSpan(15, 0, 0), reloaded2.EndTime);
+        Assert.Equal(new TimeSpan(15, 30, 0), reloaded2.EndTime);
         Assert.Equal(1, reloaded2.BookedCount);
 
         ClassRegistration reloadedReg1 = await context.ClassRegistrations.FirstAsync(r => r.Id == 101);
