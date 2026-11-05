@@ -354,7 +354,7 @@ public class ClassRegistrationService : IClassRegistrationService
         {
             throw new BusinessRuleException(
                 "REGISTRATION_CANCELLATION_TOO_LATE",
-                "Members must cancel at least seven hours before the session starts.");
+                "Thành viên chỉ được hủy đăng ký trước giờ bắt đầu buổi học ít nhất 7 tiếng. Vui lòng liên hệ quầy lễ tân nếu cần hỗ trợ.");
         }
 
         string? normalizedReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
@@ -726,7 +726,7 @@ public class ClassRegistrationService : IClassRegistrationService
         {
             throw new BusinessRuleException(
                 "REGISTRATION_CANCELLATION_TOO_LATE",
-                "Members must cancel at least seven hours before the session starts.");
+                "Thành viên chỉ được hủy đăng ký trước giờ bắt đầu buổi học ít nhất 7 tiếng. Vui lòng liên hệ quầy lễ tân nếu cần hỗ trợ.");
         }
 
         // Lấy tên trước khi nạp lại entity, để câu audit không phụ thuộc vào

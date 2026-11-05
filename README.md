@@ -211,3 +211,53 @@ Chi tiết DTO đầy đủ xem `FE_HANDOFF_SPRINT2_UC17_UC32.md` và OpenAPI c�
 - [ ] Không còn mock/LocalStorage làm nguồn booking, counter hoặc lịch cá nhân.
 
 **Trạng thái bàn giao:** sẵn sàng tích hợp FE với các bằng chứng và giới hạn trên. Hoàn tất nghiệm thu Sprint 2 cần FE chạy API thật và hoàn thiện các ca HTTP chưa được chứng minh.
+
+
+---
+
+## 8. Tổng hợp các Phân hệ Bổ sung & Cải thiện Nghiệp vụ Chi tiết (Backend)
+
+### 8.1. Phân hệ Huấn luyện, Điểm danh & Lộ trình Tập luyện (`TrainingAndOperationsController`)
+- **Quản lý Điểm danh Buổi học (`ClassSessionAttendance`):**
+  - `GET /api/TrainingAndOperations/sessions/{sessionId}/attendance`: Lấy danh sách học viên đăng ký buổi học kèm trạng thái điểm danh và thống kê chuyên cần tích lũy của từng học viên trong lớp.
+  - `PUT /api/TrainingAndOperations/sessions/{sessionId}/attendance`: Ghi nhận điểm danh (`PRESENT`, `LATE`, `EXCUSED`, `ABSENT`) và tùy chọn đánh dấu hoàn thành buổi học (`markSessionCompleted`).
+  - **Ràng buộc nghiệp vụ:** Chặn điểm danh hoặc đánh dấu hoàn thành đối với buổi học đã hủy (`SESSION_CANCELLED`) hoặc chưa tới giờ bắt đầu (`ATTENDANCE_TOO_EARLY`, kiểm tra theo múi giờ Việt Nam `SE Asia Standard Time`).
+- **Quản lý Hồ sơ Thể chất, Giáo án & Kết quả Tập luyện (`MemberTrainingProfile`, `TrainingPlan`, `TrainingResult`):**
+  - `GET /api/TrainingAndOperations/coach/workspace`: Tổng hợp dữ liệu lớp học, buổi dạy, danh sách học viên thuộc phạm vi phụ trách của HLV, hồ sơ mục tiêu, giáo án và kết quả đánh giá.
+  - `PUT /api/TrainingAndOperations/coach/students/{memberId}/goal`: Cập nhật mục tiêu thể hình, trình độ (`BEGINNER`, `INTERMEDIATE`, `ADVANCED`), cân nặng hiện tại / mục tiêu (kiểm tra giới hạn `20–300 kg`) và ghi chú sức khỏe.
+  - `POST /api/TrainingAndOperations/coach/plans`: Tạo giáo án cá nhân (`INDIVIDUAL`) hoặc giáo án chung cho lớp (`CLASS`). Kiểm tra chặt quyền sở hữu lớp/học viên của HLV và ràng buộc `EndDate >= StartDate`.
+  - `POST /api/TrainingAndOperations/coach/results`: Ghi nhận kết quả buổi tập, tỷ lệ hoàn thành (`0–100%`), đánh giá tiến độ (`EXCEEDED`, `ON_TRACK`, `NEEDS_ATTENTION`), nhận xét và bài tập về nhà.
+  - **Ràng buộc nghiệp vụ:** Chặn ghi nhận kết quả cho ngày trong tương lai (`RESULT_DATE_IN_FUTURE`), chặn ghi nhận cho buổi học chưa bắt đầu (`SESSION_NOT_STARTED_YET`), kiểm tra học viên phải có đăng ký `BOOKED` trong buổi học (`MEMBER_NOT_BOOKED_IN_SESSION`), và kiểm tra ngày ghi nhận phải nằm trong thời hạn của giáo án (`RESULT_DATE_OUTSIDE_PLAN_PERIOD`).
+  - `POST /api/TrainingAndOperations/coach/homework-notice`: Gửi thông báo nhắc bài tập về nhà tới học viên (`Notification` chuẩn hóa định dạng `Tiêu đề|Nội dung`).
+- **Không gian Tập luyện của Hội viên:**
+  - `GET /api/TrainingAndOperations/member/workspace`: Trả về hồ sơ mục tiêu cá nhân, danh sách giáo án cá nhân + giáo án của các lớp hội viên đang theo học, lịch sử đánh giá từ HLV và thống kê điểm danh chi tiết (`Present`, `Late`, `Excused`, `Absent`).
+
+### 8.2. Phân hệ Vận hành Quầy Lễ tân, Check-in/Check-out & Bảo lưu Gói tập
+- **Check-in / Check-out tại Trung tâm (`CenterVisit`):**
+  - `POST /api/TrainingAndOperations/reception/check-in` & `POST /api/TrainingAndOperations/reception/check-out/{visitId}`: Ghi nhận lượt vào/ra trung tâm của hội viên.
+  - **Ràng buộc nghiệp vụ:** Kiểm tra tài khoản hội viên phải đang `ACTIVE`, không có lượt check-in mở chưa check-out trong ngày, không cho phép check-in khi gói tập đang tạm ngưng (`MEMBERSHIP_SUSPENDED`) và bắt buộc phải có gói tập `CONFIRMED` đang trong thời hạn hiệu lực (`StartDate <= today <= EndDate`).
+- **Tạm ngưng (Bảo lưu) & Kích hoạt lại Gói tập (`Suspend` / `Resume`):**
+  - `POST /api/TrainingAndOperations/reception/subscriptions/{subscriptionId}/suspend`: Chuyển gói tập đang hoạt động (`CONFIRMED`, `StartDate <= today <= EndDate`) sang trạng thái `SUSPENDED`; **tự động hủy toàn bộ lượt đặt lịch lớp học sắp tới (`BOOKED` -> `CANCELED`) và hoàn lại sĩ số (`BookedCount`)** cho các ca tập.
+  - `POST /api/TrainingAndOperations/reception/subscriptions/{subscriptionId}/resume`: Kích hoạt lại gói tập đang `SUSPENDED` sang `CONFIRMED`; **tự động tính số ngày đã bảo lưu (`suspendedDays`) và cộng bù trực tiếp vào `EndDate`** của gói tập để bảo toàn quyền lợi hội viên, đồng thời khôi phục trạng thái `ACTIVE` cho tài khoản hội viên.
+- **Quản lý Yêu cầu Hỗ trợ (`SupportRequest`):**
+  - `POST /api/TrainingAndOperations/reception/support-requests` & `PATCH /api/TrainingAndOperations/reception/support-requests/{requestId}`: Tiếp nhận và cập nhật trạng thái xử lý (`OPEN`, `IN_PROGRESS`, `RESOLVED`) phiếu hỗ trợ hội viên.
+
+### 8.3. Phân quyền Động theo Vai trò (`RolePermissionConfig`)
+- `GET /api/TrainingAndOperations/permissions` & `PUT /api/TrainingAndOperations/permissions`: Quản lý cấu hình phân quyền truy cập theo tính năng (`FeatureKey`) và vai trò (`AllowedRoles`), lưu vết thay đổi vào `AuditLog` (`UPDATE_PERMISSION`).
+
+### 8.4. Các Cải tiến & Siết chặt Logic Nghiệp vụ Cốt lõi (Business Logic Hardening)
+1. **Nghiệp vụ Nâng cấp (`UPGRADE`) & Hạ cấp (`DOWNGRADE`) Gói tập (`MemberSubscriptionService`, `MembershipInvoiceService`):**
+   - Tự động xác định loại đơn (`REGISTER`, `RENEW`, `UPGRADE`, `DOWNGRADE`) trong `ResolveSubscriptionOrderQuote` cho cả luồng hội viên tự đăng ký và luồng lễ tân tạo đơn tại quầy.
+   - **Đơn `UPGRADE`:** Khi hội viên đang có gói `CONFIRMED` còn hiệu lực và chọn gói giá cao hơn, hệ thống tính khấu trừ phần tiền dư chưa sử dụng (`credit = Round(PackagePrice * remainingDays / totalDays)`), trừ vào số tiền cần thu của hóa đơn mới, kích hoạt gói mới ngay từ `today` khi thanh toán và đóng gói cũ ở `today.AddDays(-1)`.
+   - **Đơn `DOWNGRADE`:** Khi chọn gói giá thấp hơn gói đang hoạt động, hệ thống giữ nguyên gói hiện tại đến hết hạn và nối tiếp gói mới từ `EndDate + 1`.
+2. **Bảo vệ Toàn vẹn Trạng thái Tài khoản Nhân sự & Hội viên (`AccountService`, `MemberService`, `AccountController`):**
+   - Chặn chuyển trạng thái tài khoản `Coach` sang `INACTIVE` nếu HLV đang có buổi dạy `SCHEDULED` trong tương lai (`COACH_HAS_UPCOMING_SESSIONS`).
+   - Khi chuyển trạng thái `Member` sang `INACTIVE` hoặc xóa mềm (`SoftDelete`), hệ thống tự động hủy các buổi học `BOOKED` sắp tới (giảm `BookedCount`) và **hủy toàn bộ hóa đơn / đơn gói tập `PENDING_PAYMENT`** đang chờ thanh toán.
+   - Chuẩn hóa kiểm tra trùng `Email` (`Trim().ToLowerInvariant()`) và `Phone` (`NormalizeOptionalPhone`, bỏ qua khi rỗng và bỏ qua tài khoản đã xóa mềm `DeletedAt != null`).
+   - Bổ sung ghi nhận `AuditLog` cho thao tác mở khóa tài khoản (`ACCOUNT_UNLOCKED`) và đổi trạng thái tài khoản (`ACCOUNT_STATUS_CHANGED`).
+3. **Ràng buộc Lớp học & Đặt/Hủy lịch (`ClassService`, `ClassRegistrationService`):**
+   - Chặn đổi bộ môn (`SportId` / `DisciplineId`) của lớp học khi lớp đã có buổi học ở trạng thái `SCHEDULED` (`CLASS_SPORT_LOCKED`).
+   - Chặn lưu trữ lớp học (`ARCHIVED`) khi lớp vẫn còn các buổi học `SCHEDULED` trong tương lai (`CLASS_HAS_UPCOMING_SESSIONS`).
+   - Ràng buộc hội viên chỉ được tự hủy lịch đặt chỗ trước giờ bắt đầu buổi học tối thiểu **7 tiếng** (`CANCELLATION_DEADLINE_PASSED`).
+4. **Kiểm thử Tự động (`SportsCenterManagement.Tests`):**
+   - Toàn bộ **250/250 bài kiểm thử đơn vị (Unit Tests)** trên Backend đều vượt qua (`0 Failed`).

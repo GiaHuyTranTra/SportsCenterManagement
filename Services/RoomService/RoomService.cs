@@ -298,6 +298,27 @@ public class RoomService : IRoomService
             throw new BusinessRuleException("ROOM_NOT_FOUND", "Không tìm thấy phòng tập.");
         }
 
+        if (!isActive)
+        {
+            DateTime localNow = DateTime.UtcNow.AddHours(7);
+            DateTime today = localNow.Date;
+            TimeSpan currentTime = localNow.TimeOfDay;
+
+            int upcomingCount = await _context.ClassSessions.AsNoTracking()
+                .CountAsync(session =>
+                    session.RoomId == id &&
+                    session.Status == "SCHEDULED" &&
+                    (session.SessionDate > today ||
+                     (session.SessionDate == today && session.StartTime > currentTime)));
+
+            if (upcomingCount > 0)
+            {
+                throw new BusinessRuleException(
+                    "ROOM_HAS_UPCOMING_SESSIONS",
+                    $"Không thể ngừng hoạt động phòng tập vì đang có {upcomingCount} buổi học sắp tới được xếp tại phòng này. Vui lòng chuyển phòng hoặc hủy buổi học trước.");
+            }
+        }
+
         room.IsActive = isActive;
         room.UpdatedAt = DateTime.UtcNow;
 

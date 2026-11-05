@@ -21,12 +21,127 @@ public class NotificationService : INotificationService
         _context = context;
     }
 
+    private static DateOnly TodayVietnam()
+    {
+        try
+        {
+            TimeZoneInfo tz = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+            DateTime vnNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            return DateOnly.FromDateTime(vnNow);
+        }
+        catch
+        {
+            return DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        }
+    }
+
+    private async Task EnsureMembershipExpiryNotificationsAsync(string recipientId)
+    {
+        if (string.IsNullOrWhiteSpace(recipientId))
+        {
+            return;
+        }
+
+        List<MemberSubscription> confirmedSubs = await _context.MemberSubscriptions
+            .AsNoTracking()
+            .Where(s => s.MemberId == recipientId && s.Status == "CONFIRMED")
+            .OrderByDescending(s => s.EndDate)
+            .ToListAsync();
+
+        if (confirmedSubs.Count == 0)
+        {
+            return;
+        }
+
+        DateOnly today = TodayVietnam();
+        DateTime now = DateTime.UtcNow;
+        bool addedAny = false;
+
+        MemberSubscription? expiringSub = confirmedSubs.FirstOrDefault(s =>
+            !s.IsSuspended &&
+            s.StartDate <= today &&
+            s.EndDate >= today &&
+            (s.EndDate.DayNumber - today.DayNumber) <= 7);
+
+        if (expiringSub is not null)
+        {
+            string subEntityId = expiringSub.Id.ToString();
+            bool alreadyNotified = await _context.Notifications.AnyAsync(n =>
+                n.RecipientId == recipientId &&
+                n.Type == "MEMBERSHIP_EXPIRING_SOON" &&
+                n.EntityId == subEntityId);
+
+            if (!alreadyNotified)
+            {
+                int daysLeft = Math.Max(0, expiringSub.EndDate.DayNumber - today.DayNumber);
+                string dayText = daysLeft == 0 ? "hôm nay" : $"sau {daysLeft} ngày nữa";
+                _context.Notifications.Add(new Notification
+                {
+                    RecipientId = recipientId,
+                    Type = "MEMBERSHIP_EXPIRING_SOON",
+                    Title = $"Gói tập {expiringSub.PackageName} sắp hết hạn ({expiringSub.EndDate:dd/MM/yyyy})",
+                    Body = $"Gói thành viên \"{expiringSub.PackageName}\" của bạn sẽ hết hạn {dayText} (ngày {expiringSub.EndDate:dd/MM/yyyy}). Vui lòng gia hạn sớm để duy trì lịch tập liên tục.",
+                    EntityType = "MemberSubscription",
+                    EntityId = subEntityId,
+                    EventAt = now,
+                    CreatedAt = now,
+                    IsRead = false
+                });
+                addedAny = true;
+            }
+        }
+
+        bool hasCurrentOrFutureSub = await _context.MemberSubscriptions
+            .AsNoTracking()
+            .AnyAsync(s =>
+                s.MemberId == recipientId &&
+                (s.Status == "CONFIRMED" || s.Status == "PENDING_PAYMENT") &&
+                s.EndDate >= today);
+
+        if (!hasCurrentOrFutureSub)
+        {
+            MemberSubscription latestExpired = confirmedSubs[0];
+            if (latestExpired.EndDate < today)
+            {
+                string expiredEntityId = latestExpired.Id.ToString();
+                bool alreadyExpiredNotified = await _context.Notifications.AnyAsync(n =>
+                    n.RecipientId == recipientId &&
+                    n.Type == "MEMBERSHIP_EXPIRED" &&
+                    n.EntityId == expiredEntityId);
+
+                if (!alreadyExpiredNotified)
+                {
+                    _context.Notifications.Add(new Notification
+                    {
+                        RecipientId = recipientId,
+                        Type = "MEMBERSHIP_EXPIRED",
+                        Title = $"Gói tập {latestExpired.PackageName} đã hết hạn sử dụng",
+                        Body = $"Gói thành viên \"{latestExpired.PackageName}\" của bạn đã hết hạn từ ngày {latestExpired.EndDate:dd/MM/yyyy}. Hãy đăng ký hoặc gia hạn gói mới để tiếp tục đặt lịch học và điểm danh tại trung tâm.",
+                        EntityType = "MemberSubscription",
+                        EntityId = expiredEntityId,
+                        EventAt = now,
+                        CreatedAt = now,
+                        IsRead = false
+                    });
+                    addedAny = true;
+                }
+            }
+        }
+
+        if (addedAny)
+        {
+            await _context.SaveChangesAsync();
+        }
+    }
+
     public async Task<PagedResult<NotificationViewModel>> GetMyNotificationsAsync(
         string recipientId,
         int page,
         int pageSize,
         bool? isRead)
     {
+        await EnsureMembershipExpiryNotificationsAsync(recipientId);
+
         int normalizedPage = Math.Max(1, page);
         int normalizedPageSize = Math.Clamp(pageSize, 1, 100);
 
@@ -35,7 +150,7 @@ public class NotificationService : INotificationService
 
         if (isRead.HasValue)
         {
-            query = query.Where(item => item.ReadAt.HasValue == isRead.Value);
+            query = query.Where(item => (item.IsRead || item.ReadAt.HasValue) == isRead.Value);
         }
 
         int totalItems = await query.CountAsync();
@@ -52,7 +167,7 @@ public class NotificationService : INotificationService
                 Body = item.Body,
                 EntityType = item.EntityType,
                 EntityId = item.EntityId,
-                IsRead = item.ReadAt.HasValue,
+                IsRead = item.IsRead || item.ReadAt.HasValue,
                 CreatedAt = item.CreatedAt
             })
             .ToListAsync();

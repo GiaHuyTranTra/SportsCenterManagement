@@ -203,7 +203,29 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             string kind;
             DateOnly startDate;
 
-            if (latestConfirmed is null)
+            if (string.Equals(invoice.Subscription.Kind, "UPGRADE", StringComparison.OrdinalIgnoreCase))
+            {
+                kind = "UPGRADE";
+                startDate = today;
+
+                if (latestConfirmed is not null && latestConfirmed.EndDate >= today)
+                {
+                    DateOnly yesterday = today.AddDays(-1);
+                    if (latestConfirmed.StartDate > yesterday)
+                    {
+                        latestConfirmed.StartDate = yesterday;
+                    }
+                    latestConfirmed.EndDate = yesterday;
+                }
+            }
+            else if (string.Equals(invoice.Subscription.Kind, "DOWNGRADE", StringComparison.OrdinalIgnoreCase))
+            {
+                kind = "DOWNGRADE";
+                startDate = latestConfirmed is not null && latestConfirmed.EndDate >= today
+                    ? latestConfirmed.EndDate.AddDays(1)
+                    : today;
+            }
+            else if (latestConfirmed is null)
             {
                 kind = "REGISTER";
                 startDate = today;
@@ -227,6 +249,17 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             invoice.PaidAt = nowUtc;
             invoice.PaidBy = staffAccountId;
 
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                AccountId = staffAccountId,
+                Action = "INVOICE_PAID",
+                EntityType = "MembershipInvoice",
+                EntityId = invoice.InvoiceNumber,
+                Description = $"Xác nhận thu tiền hóa đơn {invoice.InvoiceNumber} ({invoice.Amount:N0} VNĐ - {normalizedPaymentMethod}) và kích hoạt gói \"{invoice.Subscription.PackageName}\" cho hội viên {member.FullName ?? member.MemberCode}.",
+                CreatedAt = nowUtc
+            });
+
             await _context.SaveChangesAsync();
 
             List<string> benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
@@ -245,6 +278,8 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 PaidByStaffName = staffFullName,
                 SubscriptionId = invoice.Subscription.Id,
                 SubscriptionStatus = invoice.Subscription.Status,
+                IsSuspended = invoice.Subscription.IsSuspended,
+                SuspensionReason = invoice.Subscription.SuspensionReason,
                 Kind = invoice.Subscription.Kind,
                 StartDate = invoice.Subscription.StartDate,
                 EndDate = invoice.Subscription.EndDate,
@@ -377,6 +412,8 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             PaidByStaffName = paidByStaffName,
             SubscriptionId = invoice.Subscription.Id,
             SubscriptionStatus = invoice.Subscription.Status,
+            IsSuspended = invoice.Subscription.IsSuspended,
+            SuspensionReason = invoice.Subscription.SuspensionReason,
             Kind = invoice.Subscription.Kind,
             StartDate = invoice.Subscription.StartDate,
             EndDate = invoice.Subscription.EndDate,
@@ -528,6 +565,8 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 PaidByStaffName = paidByStaffName,
                 SubscriptionId = invoice.Subscription.Id,
                 SubscriptionStatus = invoice.Subscription.Status,
+                IsSuspended = invoice.Subscription.IsSuspended,
+                SuspensionReason = invoice.Subscription.SuspensionReason,
                 Kind = invoice.Subscription.Kind,
                 StartDate = invoice.Subscription.StartDate,
                 EndDate = invoice.Subscription.EndDate,
@@ -634,8 +673,20 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 return CancelInvoiceResult.InvalidInvoiceState;
             }
 
+            DateTime nowUtc = DateTime.UtcNow;
             invoice.Status = "CANCELED";
             invoice.Subscription.Status = "CANCELED";
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                AccountId = callerAccountId,
+                Action = "INVOICE_CANCELED",
+                EntityType = "MembershipInvoice",
+                EntityId = invoice.InvoiceNumber,
+                Description = $"Hủy hóa đơn chờ thanh toán {invoice.InvoiceNumber} (gói \"{invoice.Subscription.PackageName}\").",
+                CreatedAt = nowUtc
+            });
 
             await _context.SaveChangesAsync();
             if (transaction is not null)

@@ -120,6 +120,7 @@ public class SportController : ControllerBase
             UpdateDisciplineStatusResult.Success => Ok(new { id = id, isActive = request.IsActive.Value }),
             UpdateDisciplineStatusResult.NotFound => NotFound(CreateError("SPORT_NOT_FOUND", "Không tìm thấy bộ môn.")),
             UpdateDisciplineStatusResult.NoChanges => Ok(new { id = id, isActive = request.IsActive.Value }),
+            UpdateDisciplineStatusResult.HasActiveClassesOrSessions => Conflict(CreateError("SPORT_HAS_ACTIVE_CLASSES", "Không thể ngừng hoạt động bộ môn vì đang có lớp học đang mở hoặc buổi học sắp tới thuộc bộ môn này. Vui lòng đóng lớp hoặc hủy lịch trước.")),
             UpdateDisciplineStatusResult.ConcurrencyConflict => Conflict(CreateError("CONCURRENCY_CONFLICT", "Xung đột dữ liệu đồng thời.")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, CreateError("INTERNAL_SERVER_ERROR", "Lỗi hệ thống."))
         };

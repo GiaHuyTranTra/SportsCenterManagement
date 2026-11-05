@@ -149,7 +149,7 @@ public class MembershipPackageService : IMembershipPackageService
     }
 
     public async Task<(CreatePackageResult Result, MembershipPackageDetailAPIViewModel? Package)> CreatePackageAsync(
-        MembershipPackageInputAPIViewModel request)
+        MembershipPackageInputAPIViewModel request, string? actorAccountId = null)
     {
         string? normalizedName = NormalizeName(request.Name);
         List<string>? normalizedBenefits = ValidateAndNormalizeBenefits(request.Benefits);
@@ -181,13 +181,20 @@ public class MembershipPackageService : IMembershipPackageService
 
         await _context.MembershipPackages.AddAsync(package);
         await _context.SaveChangesAsync();
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "PACKAGE_CREATED",
+            "MembershipPackage",
+            package.Id.ToString(),
+            $"Tạo mới gói tập \"{package.Name}\" ({package.DurationMonths} tháng - {package.Price:N0} VNĐ).");
+        await _context.SaveChangesAsync();
 
         return (CreatePackageResult.Success, MapDetail(package));
     }
 
     public async Task<(UpdatePackageResult Result, MembershipPackageDetailAPIViewModel? Package)> UpdatePackageAsync(
         int id,
-        MembershipPackageInputAPIViewModel request)
+        MembershipPackageInputAPIViewModel request, string? actorAccountId = null)
     {
         string? normalizedName = NormalizeName(request.Name);
         List<string>? normalizedBenefits = ValidateAndNormalizeBenefits(request.Benefits);
@@ -221,13 +228,20 @@ public class MembershipPackageService : IMembershipPackageService
         package.DurationMonths = request.DurationMonths;
         package.Benefits = SerializeBenefits(normalizedBenefits);
         package.UpdatedAt = DateTime.UtcNow;
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "PACKAGE_UPDATED",
+            "MembershipPackage",
+            package.Id.ToString(),
+            $"Cập nhật gói tập \"{package.Name}\" ({package.DurationMonths} tháng - {package.Price:N0} VNĐ).");
+        package.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
         return (UpdatePackageResult.Success, MapDetail(package));
     }
 
-    public async Task<UpdatePackageStatusResult> UpdatePackageStatusAsync(int id, bool isActive)
+    public async Task<UpdatePackageStatusResult> UpdatePackageStatusAsync(int id, bool isActive, string? actorAccountId = null)
     {
         MembershipPackage? package = await _context.MembershipPackages
             .FirstOrDefaultAsync(currentPackage => currentPackage.Id == id);
@@ -238,13 +252,19 @@ public class MembershipPackageService : IMembershipPackageService
         }
 
         package.IsActive = isActive;
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "PACKAGE_STATUS_CHANGED",
+            "MembershipPackage",
+            package.Id.ToString(),
+            $"Cập nhật trạng thái gói tập \"{package.Name}\" thành {(isActive ? "Đang mở bán" : "Tạm ẩn")}.");
         package.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
         return UpdatePackageStatusResult.Success;
     }
 
-    public async Task<DeletePackageResult> DeletePackageAsync(int id)
+    public async Task<DeletePackageResult> DeletePackageAsync(int id, string? actorAccountId = null)
     {
         MembershipPackage? package = await _context.MembershipPackages
             .FirstOrDefaultAsync(currentPackage => currentPackage.Id == id);
@@ -263,6 +283,12 @@ public class MembershipPackageService : IMembershipPackageService
         }
 
         _context.MembershipPackages.Remove(package);
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "PACKAGE_DELETED",
+            "MembershipPackage",
+            id.ToString(),
+            $"Xóa gói tập \"{package.Name}\".");
         await _context.SaveChangesAsync();
 
         return DeletePackageResult.Success;
@@ -440,6 +466,35 @@ public class MembershipPackageService : IMembershipPackageService
             CreatedAt = package.CreatedAt,
             UpdatedAt = package.UpdatedAt
         };
+    }
+
+    private async Task StageAuditLogSafeAsync(
+        string? actorAccountId,
+        string action,
+        string entityType,
+        string entityId,
+        string description)
+    {
+        string? validActorId = null;
+        if (!string.IsNullOrWhiteSpace(actorAccountId))
+        {
+            bool exists = await _context.Accounts.AnyAsync(a => a.Id == actorAccountId);
+            if (exists)
+            {
+                validActorId = actorAccountId;
+            }
+        }
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            AccountId = validActorId,
+            Action = action,
+            EntityType = entityType,
+            EntityId = entityId,
+            Description = description,
+            CreatedAt = DateTime.UtcNow
+        });
     }
 
     private sealed class PackageSubscriberCount

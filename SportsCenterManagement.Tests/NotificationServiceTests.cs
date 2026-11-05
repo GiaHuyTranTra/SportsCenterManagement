@@ -67,6 +67,39 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task GetMyNotificationsAsync_AutoGeneratesExpiringSoonNotificationOnce()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        DateOnly todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        context.MemberSubscriptions.Add(new MemberSubscription
+        {
+            Id = 501,
+            MemberId = "member-expiring",
+            PackageId = 1,
+            PackageName = "Gói Bạc 3 Tháng",
+            PackagePrice = 1800000m,
+            DurationMonths = 3,
+            Benefits = "[]",
+            StartDate = todayVn.AddMonths(-2),
+            EndDate = todayVn.AddDays(5),
+            Kind = "REGISTER",
+            Status = "CONFIRMED",
+            IsSuspended = false,
+            CreatedAt = DateTime.UtcNow.AddMonths(-2)
+        });
+        await context.SaveChangesAsync();
+
+        NotificationService service = new NotificationService(context);
+
+        PagedResult<NotificationViewModel> firstLoad = await service.GetMyNotificationsAsync("member-expiring", 1, 10, null);
+        Assert.Equal(1, firstLoad.TotalItems);
+        Assert.Equal("MEMBERSHIP_EXPIRING_SOON", firstLoad.Items[0].Type);
+
+        PagedResult<NotificationViewModel> secondLoad = await service.GetMyNotificationsAsync("member-expiring", 1, 10, null);
+        Assert.Equal(1, secondLoad.TotalItems);
+    }
+
+    [Fact]
     public async Task MarkAsReadAsync_ValidRecipient_UpdatesStatus()
     {
         await using SportsCenterManagementContext context = CreateContext();

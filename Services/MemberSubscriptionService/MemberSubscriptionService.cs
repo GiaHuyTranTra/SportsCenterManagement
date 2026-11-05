@@ -114,24 +114,35 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 return (RegisterSubscriptionResult.PendingOrderExists, null);
             }
 
+            bool hasSuspendedCurrent = await _context.MemberSubscriptions
+                .AnyAsync(s =>
+                    s.MemberId == accountId &&
+                    s.Status == "CONFIRMED" &&
+                    s.IsSuspended &&
+                    s.StartDate <= today &&
+                    s.EndDate >= today);
+            if (hasSuspendedCurrent)
+            {
+                return (RegisterSubscriptionResult.SubscriptionSuspended, null);
+            }
+
+            bool hasUpcomingConfirmed = await _context.MemberSubscriptions
+                .AnyAsync(s =>
+                    s.MemberId == accountId &&
+                    s.Status == "CONFIRMED" &&
+                    s.StartDate > today);
+            if (hasUpcomingConfirmed)
+            {
+                return (RegisterSubscriptionResult.UpcomingSubscriptionExists, null);
+            }
+
             MemberSubscription? latestConfirmed = await _context.MemberSubscriptions
                 .Where(s => s.MemberId == accountId && s.Status == "CONFIRMED")
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
 
-            string kind;
-            DateOnly startDate;
-
-            if (latestConfirmed is null)
-            {
-                kind = "REGISTER";
-                startDate = today;
-            }
-            else
-            {
-                kind = "RENEW";
-                startDate = latestConfirmed.EndDate >= today ? latestConfirmed.EndDate.AddDays(1) : today;
-            }
+            (string kind, DateOnly startDate, decimal payableAmount) =
+                ResolveSubscriptionOrderQuote(latestConfirmed, package, today);
 
             DateOnly endDate = startDate.AddMonths(package.DurationMonths).AddDays(-1);
 
@@ -158,7 +169,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             {
                 InvoiceNumber = invoiceNumber,
                 MemberId = accountId,
-                Amount = package.Price,
+                Amount = payableAmount,
                 Status = "PENDING_PAYMENT",
                 PaymentMethod = normalizedPaymentMethod,
                 CreatedBy = accountId,
@@ -171,6 +182,26 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             List<string> benefits = JsonSerializer.Deserialize<List<string>>(package.Benefits)
                 ?? new List<string>();
+
+            string kindLabel = kind switch
+            {
+                "UPGRADE" => "nâng gói",
+                "DOWNGRADE" => "hạ gói theo lịch",
+                "RENEW" => "gia hạn",
+                _ => "đăng ký"
+            };
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                AccountId = accountId,
+                Action = "SUBSCRIPTION_ORDER_CREATED",
+                EntityType = "MembershipInvoice",
+                EntityId = invoice.InvoiceNumber,
+                Description = $"Hội viên tạo đơn {kindLabel} gói tập \"{package.Name}\" ({invoice.InvoiceNumber}).",
+                CreatedAt = nowUtc
+            });
+            await _context.SaveChangesAsync();
 
             MemberSubscriptionDetailAPIViewModel data = new MemberSubscriptionDetailAPIViewModel
             {
@@ -383,6 +414,16 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             };
 
             _context.Accounts.Add(account);
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                AccountId = staff.Id,
+                Action = "COUNTER_MEMBER_REGISTERED",
+                EntityType = "Member",
+                EntityId = account.Id,
+                Description = $"Đăng ký thành viên mới tại quầy: {fullName} ({memberCode}) kèm gói \"{package.Name}\" ({invoiceNumber}).",
+                CreatedAt = nowUtc
+            });
             _context.MembershipInvoices.Add(invoice);
             await _context.SaveChangesAsync();
 
@@ -601,11 +642,33 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                     PendingInvoiceId = pendingSubscription.MembershipInvoice.Id,
                     InvoiceNumber = pendingSubscription.MembershipInvoice.InvoiceNumber,
                     PackageName = pendingSubscription.PackageName,
-                    Amount = pendingSubscription.PackagePrice,
+                    Amount = pendingSubscription.MembershipInvoice.Amount,
                     CreatedAt = pendingSubscription.CreatedAt
                 };
 
                 return (CounterRegisterResult.PendingOrderExists, null, pendingInfo);
+            }
+
+            bool hasSuspendedCurrentCounter = await _context.MemberSubscriptions
+                .AnyAsync(s =>
+                    s.MemberId == request.MemberAccountId &&
+                    s.Status == "CONFIRMED" &&
+                    s.IsSuspended &&
+                    s.StartDate <= today &&
+                    s.EndDate >= today);
+            if (hasSuspendedCurrentCounter)
+            {
+                return (CounterRegisterResult.SubscriptionSuspended, null, null);
+            }
+
+            bool hasUpcomingConfirmedCounter = await _context.MemberSubscriptions
+                .AnyAsync(s =>
+                    s.MemberId == request.MemberAccountId &&
+                    s.Status == "CONFIRMED" &&
+                    s.StartDate > today);
+            if (hasUpcomingConfirmedCounter)
+            {
+                return (CounterRegisterResult.UpcomingSubscriptionExists, null, null);
             }
 
             MemberSubscription? latestConfirmed = await _context.MemberSubscriptions
@@ -613,19 +676,8 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
 
-            string kind;
-            DateOnly startDate;
-
-            if (latestConfirmed is null)
-            {
-                kind = "REGISTER";
-                startDate = today;
-            }
-            else
-            {
-                kind = "RENEW";
-                startDate = latestConfirmed.EndDate >= today ? latestConfirmed.EndDate.AddDays(1) : today;
-            }
+            (string kind, DateOnly startDate, decimal payableAmount) =
+                ResolveSubscriptionOrderQuote(latestConfirmed, package, today);
 
             DateOnly endDate = startDate.AddMonths(package.DurationMonths).AddDays(-1);
 
@@ -644,7 +696,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 StartDate = startDate,
                 EndDate = endDate,
                 Kind = kind,
-                Status = "CONFIRMED",
+                Status = "PENDING_PAYMENT",
                 CreatedAt = nowUtc
             };
 
@@ -652,13 +704,13 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             {
                 InvoiceNumber = invoiceNumber,
                 MemberId = request.MemberAccountId,
-                Amount = package.Price,
-                Status = "PAID",
+                Amount = payableAmount,
+                Status = "PENDING_PAYMENT",
                 PaymentMethod = normalizedPaymentMethod,
                 CreatedBy = staffAccountId,
-                PaidBy = staffAccountId,
+                PaidBy = null,
                 CreatedAt = nowUtc,
-                PaidAt = nowUtc,
+                PaidAt = null,
                 Subscription = subscription
             };
 
@@ -667,6 +719,26 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             List<string> benefits = JsonSerializer.Deserialize<List<string>>(package.Benefits)
                 ?? new List<string>();
+
+            string kindLabel = kind switch
+            {
+                "UPGRADE" => "nâng gói",
+                "DOWNGRADE" => "hạ gói theo lịch",
+                "RENEW" => "gia hạn",
+                _ => "đăng ký"
+            };
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                AccountId = staffAccountId,
+                Action = "COUNTER_SUBSCRIPTION_ORDER_CREATED",
+                EntityType = "MembershipInvoice",
+                EntityId = invoice.InvoiceNumber,
+                Description = $"Lễ tân tạo đơn {kindLabel} tại quầy gói \"{package.Name}\" ({invoice.InvoiceNumber}) cho hội viên {member.FullName ?? member.MemberCode}.",
+                CreatedAt = nowUtc
+            });
+            await _context.SaveChangesAsync();
 
             MembershipReceiptAPIViewModel receipt = new MembershipReceiptAPIViewModel
             {
@@ -678,7 +750,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 CreatedAt = invoice.CreatedAt,
                 PaidAt = invoice.PaidAt,
                 PaidByStaffId = invoice.PaidBy,
-                PaidByStaffName = staffFullName,
+                PaidByStaffName = invoice.PaidBy is not null ? staffFullName : null,
                 SubscriptionId = subscription.Id,
                 SubscriptionStatus = subscription.Status,
                 Kind = subscription.Kind,
@@ -725,7 +797,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                         PendingInvoiceId = pendingSubscription.MembershipInvoice.Id,
                         InvoiceNumber = pendingSubscription.MembershipInvoice.InvoiceNumber,
                         PackageName = pendingSubscription.PackageName,
-                        Amount = pendingSubscription.PackagePrice,
+                        Amount = pendingSubscription.MembershipInvoice.Amount,
                         CreatedAt = pendingSubscription.CreatedAt
                     };
                 }
@@ -740,6 +812,41 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             throw;
         }
+    }
+
+    private static (string Kind, DateOnly StartDate, decimal PayableAmount) ResolveSubscriptionOrderQuote(
+        MemberSubscription? latestConfirmed,
+        MembershipPackage package,
+        DateOnly today)
+    {
+        if (latestConfirmed is null)
+        {
+            return ("REGISTER", today, package.Price);
+        }
+
+        if (latestConfirmed.StartDate <= today &&
+            latestConfirmed.EndDate >= today &&
+            package.Price > latestConfirmed.PackagePrice)
+        {
+            int totalDays = Math.Max(1, latestConfirmed.EndDate.DayNumber - latestConfirmed.StartDate.DayNumber + 1);
+            int remainingDays = Math.Max(0, latestConfirmed.EndDate.DayNumber - today.DayNumber + 1);
+            decimal credit = Math.Round(
+                latestConfirmed.PackagePrice * remainingDays / totalDays,
+                0,
+                MidpointRounding.AwayFromZero);
+            decimal payableAmount = Math.Max(0m, package.Price - credit);
+            return ("UPGRADE", today, payableAmount);
+        }
+
+        if (latestConfirmed.EndDate >= today && package.Price < latestConfirmed.PackagePrice)
+        {
+            return ("DOWNGRADE", latestConfirmed.EndDate.AddDays(1), package.Price);
+        }
+
+        DateOnly renewStart = latestConfirmed.EndDate >= today
+            ? latestConfirmed.EndDate.AddDays(1)
+            : today;
+        return ("RENEW", renewStart, package.Price);
     }
 
     private static (

@@ -54,7 +54,7 @@ public class MemberController : ControllerBase
         [FromBody] CreateManagedMemberAPIViewModel request)
     {
         (CreateManagedMemberResult Result, CreateManagedMemberResponseAPIViewModel? Data) result =
-            await _memberService.CreateManagedMemberAsync(request);
+            await _memberService.CreateManagedMemberAsync(request, User.FindFirstValue(ClaimTypes.NameIdentifier));
 
         switch (result.Result)
         {
@@ -185,7 +185,7 @@ public class MemberController : ControllerBase
         [FromBody] UpdateManagedMemberAPIViewModel request)
     {
         (UpdateManagedMemberResult Result, MemberDetailAPIViewModel? Data) result =
-            await _memberService.UpdateManagedMemberAsync(accountId, request);
+            await _memberService.UpdateManagedMemberAsync(accountId, request, User.FindFirstValue(ClaimTypes.NameIdentifier));
 
         switch (result.Result)
         {
@@ -208,7 +208,7 @@ public class MemberController : ControllerBase
     [HttpDelete("{accountId}")]
     public async Task<IActionResult> SoftDeleteMemberAsync([FromRoute] string accountId)
     {
-        DeleteMemberResult result = await _memberService.SoftDeleteMemberAsync(accountId);
+        DeleteMemberResult result = await _memberService.SoftDeleteMemberAsync(accountId, User.FindFirstValue(ClaimTypes.NameIdentifier));
 
         switch (result)
         {
@@ -234,7 +234,7 @@ public class MemberController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        UpdateMemberStatusResult result = await _memberService.UpdateMemberStatusAsync(accountId, request.Status);
+        UpdateMemberStatusResult result = await _memberService.UpdateMemberStatusAsync(accountId, request.Status, User.FindFirstValue(ClaimTypes.NameIdentifier));
 
         switch (result)
         {

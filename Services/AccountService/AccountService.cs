@@ -54,23 +54,39 @@ public class AccountService : IAccountService
         };
     }
 
-    private async Task<bool> IsDuplicate(string email, string phone)
+    private async Task<bool> IsDuplicate(string email, string? phone)
     {
-        Account? account = await _context.Accounts
-            .Where(q => q.Email.ToLower() == email.ToLower() || q.Phone == phone)
-            .FirstOrDefaultAsync();
+        string normalizedEmail = email.Trim().ToLowerInvariant();
+        string? normalizedPhone = string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
 
-        if (account == null)
-            return false;
-        else
+        bool emailExists = await _context.Accounts
+            .AnyAsync(q => q.Email.ToLower() == normalizedEmail);
+        if (emailExists)
+        {
             return true;
+        }
+
+        if (normalizedPhone is not null)
+        {
+            bool phoneExists = await _context.Accounts
+                .AnyAsync(q => q.Phone == normalizedPhone);
+            if (phoneExists)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public async Task<bool> CreateCenterManagerAsync(CreateCenterManagerAPIViewModel info)
     {
         try
         {
-            if (await IsDuplicate(info.Email, info.Phone!))
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
+            string? normalizedPhone = string.IsNullOrWhiteSpace(info.Phone) ? null : info.Phone.Trim();
+
+            if (await IsDuplicate(normalizedEmail, normalizedPhone))
             {
                 return false;
             }
@@ -87,8 +103,8 @@ public class AccountService : IAccountService
             Account newAccount = new Account
             {
                 Id = Guid.NewGuid().ToString(),
-                Email = info.Email,
-                Phone = info.Phone,
+                Email = normalizedEmail,
+                Phone = normalizedPhone,
                 PasswordHash = _passwordHashService.HashPassword(info.Password),
                 RoleId = role.Id,
                 Status = "Active",
@@ -101,7 +117,7 @@ public class AccountService : IAccountService
             CenterManager newCenterManager = new CenterManager
             {
                 AccountId = newAccount.Id,
-                FullName = info.FullName
+                FullName = info.FullName.Trim()
             };
 
             await _context.CenterManagers.AddAsync(newCenterManager);
@@ -118,7 +134,10 @@ public class AccountService : IAccountService
     {
         try
         {
-            if (await IsDuplicate(info.Email, info.Phone!))
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
+            string? normalizedPhone = string.IsNullOrWhiteSpace(info.Phone) ? null : info.Phone.Trim();
+
+            if (await IsDuplicate(normalizedEmail, normalizedPhone))
             {
                 return false;
             }
@@ -135,8 +154,8 @@ public class AccountService : IAccountService
             Account newAccount = new Account
             {
                 Id = Guid.NewGuid().ToString(),
-                Email = info.Email,
-                Phone = info.Phone,
+                Email = normalizedEmail,
+                Phone = normalizedPhone,
                 PasswordHash = _passwordHashService.HashPassword(info.Password),
                 RoleId = role.Id,
                 Status = "Active",
@@ -149,7 +168,7 @@ public class AccountService : IAccountService
             Coach newCoach = new Coach
             {
                 AccountId = newAccount.Id,
-                FullName = info.FullName,
+                FullName = info.FullName.Trim(),
                 Specialization = info.Specialization,
                 WorkSchedule = info.WorkSchedule
             };
@@ -169,7 +188,10 @@ public class AccountService : IAccountService
     {
         try
         {
-            if (await IsDuplicate(info.Email, info.Phone!) || string.IsNullOrEmpty(info.MemberCode))
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
+            string? normalizedPhone = string.IsNullOrWhiteSpace(info.Phone) ? null : info.Phone.Trim();
+
+            if (await IsDuplicate(normalizedEmail, normalizedPhone) || string.IsNullOrEmpty(info.MemberCode))
             {
                 return null;
             }
@@ -190,13 +212,11 @@ public class AccountService : IAccountService
                 return null;
             }
 
-            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
-
             Account newAccount = new Account
             {
                 Id = Guid.NewGuid().ToString(),
                 Email = normalizedEmail,
-                Phone = info.Phone,
+                Phone = normalizedPhone,
                 PasswordHash = _passwordHashService.HashPassword(info.Password),
                 RoleId = role.Id,
                 Status = "Active",
@@ -209,8 +229,8 @@ public class AccountService : IAccountService
             Member newMember = new Member
             {
                 AccountId = newAccount.Id,
-                MemberCode = info.MemberCode,
-                FullName = info.FullName,
+                MemberCode = info.MemberCode.Trim(),
+                FullName = info.FullName?.Trim(),
                 DateOfBirth = info.DateOfBirth,
                 AvatarUrl = info.AvatarUrl
             };
@@ -234,7 +254,10 @@ public class AccountService : IAccountService
     {
         try
         {
-            if (await IsDuplicate(info.Email, info.Phone!))
+            string normalizedEmail = info.Email.Trim().ToLowerInvariant();
+            string? normalizedPhone = string.IsNullOrWhiteSpace(info.Phone) ? null : info.Phone.Trim();
+
+            if (await IsDuplicate(normalizedEmail, normalizedPhone))
             {
                 return false;
             }
@@ -251,8 +274,8 @@ public class AccountService : IAccountService
             Account newAccount = new Account
             {
                 Id = Guid.NewGuid().ToString(),
-                Email = info.Email,
-                Phone = info.Phone,
+                Email = normalizedEmail,
+                Phone = normalizedPhone,
                 PasswordHash = _passwordHashService.HashPassword(info.Password),
                 RoleId = role.Id,
                 Status = "Active",
@@ -265,7 +288,7 @@ public class AccountService : IAccountService
             Receptionist newReceptionist = new Receptionist
             {
                 AccountId = newAccount.Id,
-                FullName = info.FullName,
+                FullName = info.FullName.Trim(),
                 WorkShift = info.WorkShift
             };
 
@@ -516,10 +539,10 @@ public class AccountService : IAccountService
             return UpdateCurrentProfileResult.InvalidFieldForRole;
         }
 
-        if (account.Role.Name == "CenterManager" && account.CenterManager is null ||
-            account.Role.Name == "Coach" && account.Coach is null ||
-            account.Role.Name == "Member" && account.Member is null ||
-            account.Role.Name == "Receptionist" && account.Receptionist is null)
+        if (account.Role.Name == "CenterManager" && account.CenterManager is not null == false ||
+            account.Role.Name == "Coach" && account.Coach is not null == false ||
+            account.Role.Name == "Member" && account.Member is not null == false ||
+            account.Role.Name == "Receptionist" && account.Receptionist is not null == false)
         {
             return UpdateCurrentProfileResult.ProfileNotFound;
         }
@@ -612,7 +635,7 @@ public class AccountService : IAccountService
     public async Task<UnlockAccountResult> UnlockAccountAsync(string accountId)
     {
         Account? account = await _context.Accounts
-            .FirstOrDefaultAsync(item => item.Id == accountId);
+            .FirstOrDefaultAsync(item => item.Id == accountId && item.DeletedAt == null);
         if (account is null)
         {
             return UnlockAccountResult.NotFound;
@@ -626,6 +649,12 @@ public class AccountService : IAccountService
         account.IsLocked = false;
         account.FailedLoginCount = 0;
         account.UpdatedAt = DateTime.UtcNow;
+        await StageAuditLogSafeAsync(
+            null,
+            "ACCOUNT_UNLOCKED",
+            "Account",
+            account.Id,
+            $"Mở khóa đăng nhập cho tài khoản {account.Email}.");
         await _context.SaveChangesAsync();
         return UnlockAccountResult.Success;
     }
@@ -649,7 +678,7 @@ public class AccountService : IAccountService
 
         if (!_context.Database.IsRelational())
         {
-            return await UpdateAccountStatusInMemoryAsync(targetAccountId, normalizedStatus);
+            return await UpdateAccountStatusInMemoryAsync(actorAccountId, targetAccountId, normalizedStatus);
         }
 
         await using IDbContextTransaction transaction =
@@ -659,7 +688,7 @@ public class AccountService : IAccountService
             Account? account = await _context.Accounts
                 .FromSqlInterpolated($"SELECT * FROM [Account] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {targetAccountId}")
                 .Include(item => item.Role)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(item => item.DeletedAt == null);
 
             if (account is null)
             {
@@ -673,29 +702,50 @@ public class AccountService : IAccountService
                 return UpdateAccountStatusResult.Success;
             }
 
-            if (normalizedStatus == InactiveStatus && account.Role.Name == "CenterManager")
+            if (normalizedStatus == InactiveStatus)
             {
-                Role? managerRole = await _context.Roles
-                    .FromSqlRaw("SELECT * FROM [Role] WITH (UPDLOCK, HOLDLOCK) WHERE [Name] = 'CenterManager'")
-                    .FirstOrDefaultAsync();
-
-                if (managerRole is null)
+                if (account.Role.Name == "CenterManager")
                 {
-                    await transaction.RollbackAsync();
-                    return UpdateAccountStatusResult.NotFound;
+                    Role? managerRole = await _context.Roles
+                        .FromSqlRaw("SELECT * FROM [Role] WITH (UPDLOCK, HOLDLOCK) WHERE [Name] = 'CenterManager'")
+                        .FirstOrDefaultAsync();
+
+                    if (managerRole is null)
+                    {
+                        await transaction.RollbackAsync();
+                        return UpdateAccountStatusResult.NotFound;
+                    }
+
+                    int activeManagerCount = await _context.Accounts.CountAsync(item =>
+                        item.RoleId == managerRole.Id && item.Status == ActiveStatus && item.DeletedAt == null);
+                    if (activeManagerCount <= 1)
+                    {
+                        await transaction.RollbackAsync();
+                        return UpdateAccountStatusResult.LastActiveCenterManager;
+                    }
                 }
-
-                int activeManagerCount = await _context.Accounts.CountAsync(item =>
-                    item.RoleId == managerRole.Id && item.Status == ActiveStatus);
-                if (activeManagerCount <= 1)
+                else if (account.Role.Name == "Coach")
                 {
-                    await transaction.RollbackAsync();
-                    return UpdateAccountStatusResult.LastActiveCenterManager;
+                    if (await CoachHasUpcomingSessionsAsync(account.Id))
+                    {
+                        await transaction.RollbackAsync();
+                        return UpdateAccountStatusResult.CoachHasUpcomingSessions;
+                    }
+                }
+                else if (account.Role.Name == "Member")
+                {
+                    await DeactivateMemberSideEffectsAsync(account.Id, actorAccountId);
                 }
             }
 
             account.Status = normalizedStatus;
             account.UpdatedAt = DateTime.UtcNow;
+            await StageAuditLogSafeAsync(
+                actorAccountId,
+                "ACCOUNT_STATUS_CHANGED",
+                account.Role.Name,
+                account.Id,
+                $"Cập nhật trạng thái tài khoản {account.Email} thành {normalizedStatus}.");
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
             return UpdateAccountStatusResult.Success;
@@ -708,12 +758,13 @@ public class AccountService : IAccountService
     }
 
     private async Task<UpdateAccountStatusResult> UpdateAccountStatusInMemoryAsync(
+        string actorAccountId,
         string targetAccountId,
         string normalizedStatus)
     {
         Account? account = await _context.Accounts
             .Include(item => item.Role)
-            .FirstOrDefaultAsync(item => item.Id == targetAccountId);
+            .FirstOrDefaultAsync(item => item.Id == targetAccountId && item.DeletedAt == null);
         if (account is null)
         {
             return UpdateAccountStatusResult.NotFound;
@@ -724,20 +775,127 @@ public class AccountService : IAccountService
             return UpdateAccountStatusResult.Success;
         }
 
-        if (normalizedStatus == InactiveStatus && account.Role.Name == "CenterManager")
+        if (normalizedStatus == InactiveStatus)
         {
-            int activeManagerCount = await _context.Accounts.CountAsync(item =>
-                item.RoleId == account.RoleId && item.Status == ActiveStatus);
-            if (activeManagerCount <= 1)
+            if (account.Role.Name == "CenterManager")
             {
-                return UpdateAccountStatusResult.LastActiveCenterManager;
+                int activeManagerCount = await _context.Accounts.CountAsync(item =>
+                    item.RoleId == account.RoleId && item.Status == ActiveStatus && item.DeletedAt == null);
+                if (activeManagerCount <= 1)
+                {
+                    return UpdateAccountStatusResult.LastActiveCenterManager;
+                }
+            }
+            else if (account.Role.Name == "Coach")
+            {
+                if (await CoachHasUpcomingSessionsAsync(account.Id))
+                {
+                    return UpdateAccountStatusResult.CoachHasUpcomingSessions;
+                }
+            }
+            else if (account.Role.Name == "Member")
+            {
+                await DeactivateMemberSideEffectsAsync(account.Id, actorAccountId);
             }
         }
 
         account.Status = normalizedStatus;
         account.UpdatedAt = DateTime.UtcNow;
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "ACCOUNT_STATUS_CHANGED",
+            account.Role.Name,
+            account.Id,
+            $"Cập nhật trạng thái tài khoản {account.Email} thành {normalizedStatus}.");
         await _context.SaveChangesAsync();
         return UpdateAccountStatusResult.Success;
+    }
+
+    private async Task<bool> CoachHasUpcomingSessionsAsync(string coachAccountId)
+    {
+        DateTime localNow = DateTime.UtcNow.AddHours(7);
+        DateTime today = localNow.Date;
+        TimeSpan currentTime = localNow.TimeOfDay;
+
+        return await _context.ClassSessions.AsNoTracking()
+            .AnyAsync(s =>
+                s.CoachId == coachAccountId &&
+                s.Status == "SCHEDULED" &&
+                (s.SessionDate > today || (s.SessionDate == today && s.StartTime > currentTime)));
+    }
+
+    private async Task DeactivateMemberSideEffectsAsync(string memberAccountId, string? actorAccountId)
+    {
+        DateTime now = DateTime.UtcNow;
+        DateTime localNow = now.AddHours(7);
+        DateTime todayDate = localNow.Date;
+        TimeSpan currentTime = localNow.TimeOfDay;
+
+        List<ClassRegistration> upcomingBookings = await _context.ClassRegistrations
+            .Include(r => r.Session)
+            .Where(r =>
+                r.MemberId == memberAccountId &&
+                r.Status == "BOOKED" &&
+                r.Session.Status == "SCHEDULED" &&
+                (r.Session.SessionDate > todayDate ||
+                 (r.Session.SessionDate == todayDate && r.Session.StartTime > currentTime)))
+            .ToListAsync();
+
+        foreach (ClassRegistration booking in upcomingBookings)
+        {
+            booking.Status = "CANCELED";
+            booking.CanceledAt = now;
+            booking.CanceledBy = string.IsNullOrWhiteSpace(actorAccountId) ? memberAccountId : actorAccountId;
+            booking.CancelReason = "Tự động hủy giữ chỗ do tài khoản hội viên ngừng hoạt động.";
+            if (booking.Session.BookedCount > 0)
+            {
+                booking.Session.BookedCount -= 1;
+                booking.Session.UpdatedAt = now;
+            }
+        }
+
+        List<MembershipInvoice> pendingInvoices = await _context.MembershipInvoices
+            .Include(i => i.Subscription)
+            .Where(i => i.MemberId == memberAccountId && i.Status == "PENDING_PAYMENT")
+            .ToListAsync();
+
+        foreach (MembershipInvoice pendingInvoice in pendingInvoices)
+        {
+            pendingInvoice.Status = "CANCELED";
+            if (pendingInvoice.Subscription is not null && pendingInvoice.Subscription.Status == "PENDING_PAYMENT")
+            {
+                pendingInvoice.Subscription.Status = "CANCELED";
+            }
+        }
+    }
+
+    private async Task StageAuditLogSafeAsync(
+        string? actorAccountId,
+        string action,
+        string entityType,
+        string entityId,
+        string description)
+    {
+        string? validActorId = null;
+        if (!string.IsNullOrWhiteSpace(actorAccountId))
+        {
+            bool exists = await _context.Accounts.AnyAsync(a => a.Id == actorAccountId);
+            if (exists)
+            {
+                validActorId = actorAccountId;
+            }
+        }
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            AccountId = validActorId,
+            Action = action,
+            EntityType = entityType,
+            EntityId = entityId,
+            Description = description,
+            CreatedAt = DateTime.UtcNow
+        });
     }
 
     private static string? NormalizeAccountStatus(string status)

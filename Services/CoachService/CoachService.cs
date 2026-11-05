@@ -315,6 +315,29 @@ public class CoachService : ICoachService
                     .Where(item => !existingIds.Contains(item.Id))
                     .ToList();
 
+                if (linksToRemove.Count > 0)
+                {
+                    List<int> removedDisciplineIds = linksToRemove
+                        .Select(link => link.DisciplineId)
+                        .ToList();
+                    DateTime localNow = DateTime.UtcNow.AddHours(7);
+                    DateTime today = localNow.Date;
+                    TimeSpan currentTime = localNow.TimeOfDay;
+
+                    bool hasUpcomingInRemovedDisciplines = await _context.ClassSessions.AsNoTracking()
+                        .AnyAsync(s =>
+                            s.CoachId == coach.AccountId &&
+                            s.Status == "SCHEDULED" &&
+                            removedDisciplineIds.Contains(s.Class.DisciplineId) &&
+                            (s.SessionDate > today || (s.SessionDate == today && s.StartTime > currentTime)));
+
+                    if (hasUpcomingInRemovedDisciplines)
+                    {
+                        await RollbackAsync(transaction);
+                        return (UpdateCoachResult.HasUpcomingSessions, null);
+                    }
+                }
+
                 if (linksToRemove.Count > 0 || disciplinesToAdd.Count > 0)
                 {
                     _context.CoachDisciplines.RemoveRange(linksToRemove);
@@ -410,6 +433,24 @@ public class CoachService : ICoachService
             return UpdateCoachStatusResult.NoChanges;
         }
 
+        if (normalizedStatus == "Inactive")
+        {
+            DateTime localNow = DateTime.UtcNow.AddHours(7);
+            DateTime today = localNow.Date;
+            TimeSpan currentTime = localNow.TimeOfDay;
+
+            bool hasUpcomingSessions = await _context.ClassSessions.AsNoTracking()
+                .AnyAsync(s =>
+                    s.CoachId == coach.AccountId &&
+                    s.Status == "SCHEDULED" &&
+                    (s.SessionDate > today || (s.SessionDate == today && s.StartTime > currentTime)));
+
+            if (hasUpcomingSessions)
+            {
+                return UpdateCoachStatusResult.HasUpcomingSessions;
+            }
+        }
+
         coach.Account.Status = normalizedStatus;
         coach.Account.UpdatedAt = DateTime.UtcNow;
         await _auditLogService.StageAuditLogAsync(
@@ -448,6 +489,21 @@ public class CoachService : ICoachService
         }
 
         DateTime now = DateTime.UtcNow;
+        DateTime localNow = DateTime.UtcNow.AddHours(7);
+        DateTime today = localNow.Date;
+        TimeSpan currentTime = localNow.TimeOfDay;
+
+        bool hasUpcomingSessions = await _context.ClassSessions.AsNoTracking()
+            .AnyAsync(s =>
+                s.CoachId == coach.AccountId &&
+                s.Status == "SCHEDULED" &&
+                (s.SessionDate > today || (s.SessionDate == today && s.StartTime > currentTime)));
+
+        if (hasUpcomingSessions)
+        {
+            return DeleteCoachResult.HasUpcomingSessions;
+        }
+
         coach.Account.DeletedAt = now;
         coach.Account.Status = "Inactive";
         coach.Account.UpdatedAt = now;

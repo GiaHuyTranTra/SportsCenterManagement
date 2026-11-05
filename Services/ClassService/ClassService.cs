@@ -728,6 +728,14 @@ public class ClassService : IClassService
             throw new BusinessRuleException("SPORT_NOT_FOUND", "Không tìm thấy bộ môn.");
         }
 
+        if (currentClass.DisciplineId != request.SportId &&
+            currentClass.ClassSessions.Any(session => session.Status == "SCHEDULED"))
+        {
+            throw new BusinessRuleException(
+                "CLASS_SPORT_LOCKED",
+                "Không thể đổi bộ môn khi lớp học đang có buổi học được lên lịch.");
+        }
+
         if (currentClass.DisciplineId != request.SportId && !sport.IsActive)
         {
             throw new BusinessRuleException("SPORT_INACTIVE", "Bộ môn đã ngừng hoạt động không thể gán cho lớp học.");
@@ -884,6 +892,21 @@ public class ClassService : IClassService
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
         TimeSpan currentTime = localNow.TimeOfDay;
+
+        if (normalizedStatus == "ARCHIVED")
+        {
+            bool hasUpcomingScheduledSession = currentClass.ClassSessions.Any(session =>
+                session.Status == "SCHEDULED" &&
+                (session.SessionDate > today ||
+                 (session.SessionDate == today && session.StartTime > currentTime)));
+
+            if (hasUpcomingScheduledSession)
+            {
+                throw new BusinessRuleException(
+                    "CLASS_HAS_UPCOMING_SESSIONS",
+                    "Không thể lưu trữ lớp học đang còn buổi học được lên lịch trong tương lai. Vui lòng hủy các buổi học tương lai trước khi lưu trữ.");
+            }
+        }
 
         if (normalizedStatus == "OPEN")
         {

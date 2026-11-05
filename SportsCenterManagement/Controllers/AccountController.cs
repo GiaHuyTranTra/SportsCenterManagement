@@ -48,7 +48,7 @@ namespace SportsCenterManagement.Controllers
 
                 if (isCreated)
                 {
-                    return Ok("Create center manager successful");
+                    return Ok("Tạo tài khoản quản lý trung tâm thành công.");
                 }
                 else
                 {
@@ -92,7 +92,7 @@ namespace SportsCenterManagement.Controllers
             {
                 CreateCoachResult.Success when result.Data is not null =>
                     StatusCode(StatusCodes.Status201Created, result.Data),
-                CreateCoachResult.InvalidData => BadRequest("Invalid coach data."),
+                CreateCoachResult.InvalidData => BadRequest("Dữ liệu huấn luyện viên không hợp lệ."),
                 CreateCoachResult.DuplicateEmail => Conflict("Email already exists."),
                 CreateCoachResult.DuplicatePhone => Conflict("Phone number already exists."),
                 CreateCoachResult.DisciplineNotFoundOrInactive =>
@@ -148,13 +148,13 @@ namespace SportsCenterManagement.Controllers
             {
                 CreateReceptionistResult.Success when result.Data is not null =>
                     StatusCode(StatusCodes.Status201Created, result.Data),
-                CreateReceptionistResult.InvalidData => BadRequest("Invalid receptionist data."),
+                CreateReceptionistResult.InvalidData => BadRequest("Dữ liệu lễ tân không hợp lệ."),
                 CreateReceptionistResult.DuplicateEmail => Conflict("Email already exists."),
                 CreateReceptionistResult.DuplicatePhone => Conflict("Phone number already exists."),
                 CreateReceptionistResult.ReceptionistRoleMissing =>
                     StatusCode(StatusCodes.Status500InternalServerError),
                 CreateReceptionistResult.ConcurrencyConflict =>
-                    Conflict("A concurrent request conflict occurred."),
+                    Conflict("Xung đột dữ liệu khi xử lý đồng thời. Vui lòng thử lại."),
                 _ => StatusCode(StatusCodes.Status500InternalServerError)
             };
         }
@@ -169,7 +169,7 @@ namespace SportsCenterManagement.Controllers
             {
                 return Conflict(CreateError(
                     "EMAIL_ALREADY_EXISTS",
-                    "Email already exists."));
+                    "Email này đã được đăng ký."));
             }
 
             (RequestEmailVerificationResult result, int retryAfterSeconds, string? demoCode) =
@@ -179,7 +179,7 @@ namespace SportsCenterManagement.Controllers
                 RequestEmailVerificationResult.Success => Ok(
                     new EmailVerificationOtpResponseAPIViewModel
                     {
-                        Message = "A verification code was sent to " + normalizedEmail + ".",
+                        Message = "Mã xác thực đã được gửi tới " + normalizedEmail + ".",
                         ExpiresInSeconds = 300,
                         CooldownSeconds = 60,
                         DemoCode = demoCode
@@ -188,7 +188,7 @@ namespace SportsCenterManagement.Controllers
                     StatusCodes.Status429TooManyRequests,
                     CreateError(
                         "OTP_COOLDOWN_ACTIVE",
-                        "Please wait before requesting another verification code.",
+                        "Vui lòng đợi hết thời gian chờ trước khi yêu cầu mã xác thực mới.",
                         new Dictionary<string, int>
                         {
                             ["retryAfterSeconds"] = retryAfterSeconds
@@ -197,10 +197,10 @@ namespace SportsCenterManagement.Controllers
                     StatusCodes.Status503ServiceUnavailable,
                     CreateError(
                         "OTP_DELIVERY_FAILED",
-                        "The verification code could not be delivered. Please try again.")),
+                        "Không thể gửi mã xác thực qua email. Vui lòng thử lại.")),
                 _ => StatusCode(
                     StatusCodes.Status500InternalServerError,
-                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+                    CreateError("INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi hệ thống ngoài dự kiến."))
             };
         }
 
@@ -214,7 +214,7 @@ namespace SportsCenterManagement.Controllers
                 {
                     return Conflict(CreateError(
                         "EMAIL_ALREADY_EXISTS",
-                        "Email already exists."));
+                        "Email này đã được đăng ký."));
                 }
 
                 VerifyEmailCodeResult verification = _emailVerification.VerifyCode(
@@ -260,7 +260,7 @@ namespace SportsCenterManagement.Controllers
             {
                 return Unauthorized(CreateError(
                     "INVALID_TOKEN_CLAIMS",
-                    "The access token does not contain the required claims."));
+                    "Phiên đăng nhập không hợp lệ."));
             }
 
             UpdateCurrentProfileResult result =
@@ -271,35 +271,35 @@ namespace SportsCenterManagement.Controllers
                 UpdateCurrentProfileResult.Success => Ok(),
                 UpdateCurrentProfileResult.AccountNotFound => Unauthorized(CreateError(
                     "ACCOUNT_NOT_FOUND",
-                    "The authenticated account no longer exists.")),
+                    "Tài khoản đang đăng nhập không còn tồn tại.")),
                 UpdateCurrentProfileResult.ProfileNotFound => StatusCode(
                     StatusCodes.Status500InternalServerError,
                     CreateError(
                         "PROFILE_DATA_INTEGRITY_ERROR",
-                        "The account profile is not configured correctly.")),
+                        "Hồ sơ tài khoản chưa được cấu hình đúng.")),
                 UpdateCurrentProfileResult.UnsupportedRole => StatusCode(
                     StatusCodes.Status500InternalServerError,
                     CreateError(
                         "UNSUPPORTED_ACCOUNT_ROLE",
-                        "The account role is not supported.")),
+                        "Vai trò tài khoản không được hỗ trợ.")),
                 UpdateCurrentProfileResult.InvalidData => BadRequest(CreateError(
                     "INVALID_PROFILE_DATA",
-                    "The profile data is invalid.")),
+                    "Dữ liệu hồ sơ không hợp lệ.")),
                 UpdateCurrentProfileResult.InvalidFieldForRole => BadRequest(CreateError(
                     "INVALID_FIELD_FOR_ROLE",
-                    "One or more profile fields are not available for this account role.")),
+                    "Một hoặc nhiều trường thông tin không áp dụng cho vai trò tài khoản này.")),
                 UpdateCurrentProfileResult.DuplicatePhone => Conflict(CreateError(
                     "DUPLICATE_PHONE",
-                    "The phone number is already in use.")),
+                    "Số điện thoại này đã được sử dụng.")),
                 UpdateCurrentProfileResult.NoChanges => BadRequest(CreateError(
                     "NO_CHANGES_PROVIDED",
-                    "No profile changes were provided.")),
+                    "Không có thay đổi nào được cung cấp.")),
                 UpdateCurrentProfileResult.ConcurrencyConflict => Conflict(CreateError(
                     "CONCURRENCY_CONFLICT",
-                    "A concurrent request conflict was detected. Please try again.")),
+                    "Phát hiện xung đột dữ liệu đồng thời. Vui lòng thử lại.")),
                 _ => StatusCode(
                     StatusCodes.Status500InternalServerError,
-                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+                    CreateError("INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi hệ thống ngoài dự kiến."))
             };
         }
 
@@ -314,10 +314,10 @@ namespace SportsCenterManagement.Controllers
                 UnlockAccountResult.Success => Ok(),
                 UnlockAccountResult.NotFound => NotFound(CreateError(
                     "ACCOUNT_NOT_FOUND",
-                    "The account was not found.")),
+                    "Không tìm thấy tài khoản.")),
                 _ => StatusCode(
                     StatusCodes.Status500InternalServerError,
-                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+                    CreateError("INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi hệ thống ngoài dự kiến."))
             };
         }
 
@@ -333,7 +333,7 @@ namespace SportsCenterManagement.Controllers
             {
                 return Unauthorized(CreateError(
                     "INVALID_TOKEN_CLAIMS",
-                    "The access token does not contain the required claims."));
+                    "Phiên đăng nhập không hợp lệ."));
             }
 
             UpdateAccountStatusResult result = await _account.UpdateAccountStatusAsync(
@@ -346,22 +346,25 @@ namespace SportsCenterManagement.Controllers
                 UpdateAccountStatusResult.Success => Ok(),
                 UpdateAccountStatusResult.NotFound => NotFound(CreateError(
                     "ACCOUNT_NOT_FOUND",
-                    "The account was not found.")),
+                    "Không tìm thấy tài khoản.")),
                 UpdateAccountStatusResult.InvalidStatus => BadRequest(CreateError(
                     "INVALID_ACCOUNT_STATUS",
-                    "Status must be either Active or Inactive.")),
+                    "Trạng thái tài khoản chỉ được là Active hoặc Inactive.")),
                 UpdateAccountStatusResult.SelfDeactivationNotAllowed => Conflict(CreateError(
                     "SELF_DEACTIVATION_NOT_ALLOWED",
-                    "A center manager cannot deactivate their own account.")),
+                    "Quản lý trung tâm không thể tự ngừng hoạt động tài khoản của chính mình.")),
                 UpdateAccountStatusResult.LastActiveCenterManager => Conflict(CreateError(
                     "LAST_ACTIVE_CENTER_MANAGER",
-                    "The last active center manager cannot be deactivated.")),
+                    "Không thể ngừng hoạt động quản lý trung tâm đang hoạt động cuối cùng.")),
+                UpdateAccountStatusResult.CoachHasUpcomingSessions => Conflict(CreateError(
+                    "COACH_HAS_UPCOMING_SESSIONS",
+                    "Không thể ngừng hoạt động tài khoản huấn luyện viên đang có lịch dạy trong tương lai.")),
                 UpdateAccountStatusResult.ConcurrencyConflict => Conflict(CreateError(
                     "CONCURRENCY_CONFLICT",
-                    "A concurrent request conflict was detected. Please try again.")),
+                    "Phát hiện xung đột dữ liệu đồng thời. Vui lòng thử lại.")),
                 _ => StatusCode(
                     StatusCodes.Status500InternalServerError,
-                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+                    CreateError("INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi hệ thống ngoài dự kiến."))
             };
         }
 
@@ -377,7 +380,7 @@ namespace SportsCenterManagement.Controllers
 
             AccountProfileAPIViewModel? profile =
                 await _account.GetProfileAsync(accountId);
-            return profile is null ? NotFound("Account profile not found.") : Ok(profile);
+            return profile is null ? NotFound("Không tìm thấy hồ sơ tài khoản.") : Ok(profile);
         }
 
         private IActionResult CreateEmailVerificationError(VerifyEmailCodeResult result)
@@ -386,24 +389,24 @@ namespace SportsCenterManagement.Controllers
             {
                 VerifyEmailCodeResult.CodeRequired => BadRequest(CreateError(
                     "EMAIL_VERIFICATION_REQUIRED",
-                    "An email verification code is required.")),
+                    "Vui lòng nhập mã xác thực email.")),
                 VerifyEmailCodeResult.CodeNotFound => BadRequest(CreateError(
                     "EMAIL_VERIFICATION_NOT_FOUND",
-                    "Request a new email verification code before continuing.")),
+                    "Chưa có mã xác thực email. Vui lòng yêu cầu gửi mã trước khi tiếp tục.")),
                 VerifyEmailCodeResult.CodeExpired => BadRequest(CreateError(
                     "EMAIL_VERIFICATION_EXPIRED",
-                    "The email verification code has expired.")),
+                    "Mã xác thực email đã hết hạn.")),
                 VerifyEmailCodeResult.InvalidCode => BadRequest(CreateError(
                     "INVALID_EMAIL_VERIFICATION_CODE",
-                    "The email verification code is incorrect.")),
+                    "Mã xác thực email không chính xác.")),
                 VerifyEmailCodeResult.AttemptsExceeded => StatusCode(
                     StatusCodes.Status429TooManyRequests,
                     CreateError(
                         "EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED",
-                        "The email verification code is no longer valid.")),
+                        "Mã xác thực email không còn hiệu lực do nhập sai quá số lần cho phép.")),
                 _ => StatusCode(
                     StatusCodes.Status500InternalServerError,
-                    CreateError("INTERNAL_SERVER_ERROR", "An unexpected error occurred."))
+                    CreateError("INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi hệ thống ngoài dự kiến."))
             };
         }
 

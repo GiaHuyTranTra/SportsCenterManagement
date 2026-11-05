@@ -21,6 +21,7 @@ public enum UpdateCoachResult
     DuplicatePhone,
     DisciplineNotFoundOrInactive,
     NoChanges,
+    HasUpcomingSessions,
     ConcurrencyConflict
 }
 
@@ -30,6 +31,7 @@ public enum UpdateCoachStatusResult
     NotFound,
     InvalidStatus,
     NoChanges,
+    HasUpcomingSessions,
     ConcurrencyConflict
 }
 
@@ -38,6 +40,7 @@ public enum DeleteCoachResult
     Success,
     NotFound,
     AlreadyDeleted,
+    HasUpcomingSessions,
     ConcurrencyConflict
 }
 
