@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Services.MembershipInvoiceService;
 
@@ -18,15 +19,18 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
     private readonly SportsCenterManagementContext _context;
     private readonly IConfiguration _configuration;
     private readonly IHostEnvironment? _environment;
+    private readonly IMemoryCache? _paymentCache;
 
     public MembershipInvoiceService(
         SportsCenterManagementContext context,
         IConfiguration configuration,
-        IHostEnvironment? environment = null)
+        IHostEnvironment? environment = null,
+        IMemoryCache? paymentCache = null)
     {
         _context = context;
         _configuration = configuration;
         _environment = environment;
+        _paymentCache = paymentCache;
     }
 
     public async Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> PayInvoiceAsync(

@@ -18,6 +18,31 @@ public class DemoPaymentController : ControllerBase
     [HttpGet("config")]
     public IActionResult Configuration() => Ok(new { enabled = _service.IsDemoPaymentEnabled() });
 
+    [HttpPost("{invoiceId:int}/qr")]
+    public async Task<IActionResult> CreateQrAsync(int invoiceId)
+    {
+        string? caller = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(caller)) return Unauthorized();
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await _service.CreateTransferQrAsync(invoiceId, caller));
+    }
+
+    [AllowAnonymous]
+    [HttpPost("qr/status")]
+    public async Task<IActionResult> QrStatusAsync([FromBody] TransferQrRequestAPIViewModel request)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await _service.GetTransferQrStatusAsync(request.Token));
+    }
+
+    [AllowAnonymous]
+    [HttpPost("qr/confirm")]
+    public async Task<IActionResult> ConfirmQrAsync([FromBody] TransferQrRequestAPIViewModel request)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await _service.ConfirmTransferQrAsync(request.Token, request.ConfirmSimulation));
+    }
+
     [HttpPost("{invoiceId:int}/confirm")]
     public async Task<IActionResult> ConfirmAsync(int invoiceId, [FromBody] DemoPaymentConfirmationAPIViewModel request)
     {
