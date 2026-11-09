@@ -302,7 +302,7 @@ public class MemberSubscriptionServiceTests
     }
 
     [Fact]
-    public async Task PayInvoice_ExpiredUpgradeQuote_IsRejectedWithUpgradeQuoteExpired()
+    public async Task PayInvoice_ExpiredUpgradeQuote_IsRejectedWithQuoteExpired()
     {
         await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
         await fixture.Service.RegisterMemberAtCounterAsync(fixture.Manager.Id, fixture.ValidRequest());
@@ -315,10 +315,10 @@ public class MemberSubscriptionServiceTests
         (Services.MembershipInvoiceService.PayInvoiceResult result, APIViewModel.MembershipInvoice.MembershipReceiptAPIViewModel? receipt) =
             await service.PayInvoiceAsync(invoice.Id, fixture.Receptionist.Id, new APIViewModel.MembershipInvoice.PayMembershipInvoiceAPIViewModel
             {
-                PaymentMethod = "CASH"
+                PaymentMethod = "CASH", Amount = invoice.Amount, ConfirmReceivedCash = true
             });
 
-        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.UpgradeQuoteExpired, result);
+        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.QuoteExpired, result);
         Assert.Null(receipt);
     }
 

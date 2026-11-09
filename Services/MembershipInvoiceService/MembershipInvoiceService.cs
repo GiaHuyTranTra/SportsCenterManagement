@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -9,20 +9,28 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Services.MembershipInvoiceService;
 
-public class MembershipInvoiceService : IMembershipInvoiceService
+public partial class MembershipInvoiceService : IMembershipInvoiceService
 {
     private readonly SportsCenterManagementContext _context;
     private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment? _environment;
+    private readonly IMemoryCache? _paymentCache;
 
     public MembershipInvoiceService(
         SportsCenterManagementContext context,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment? environment = null,
+        IMemoryCache? paymentCache = null)
     {
         _context = context;
         _configuration = configuration;
+        _environment = environment;
+        _paymentCache = paymentCache;
     }
 
     public async Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> PayInvoiceAsync(
@@ -30,17 +38,36 @@ public class MembershipInvoiceService : IMembershipInvoiceService
         string staffAccountId,
         PayMembershipInvoiceAPIViewModel request)
     {
+        return await ConfirmPaymentAsync(invoiceId, staffAccountId, request, "CASH");
+    }
+
+    public Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmBankTransferAsync(
+        int invoiceId, string staffAccountId, ConfirmBankTransferAPIViewModel request)
+    {
+        return ConfirmPaymentAsync(invoiceId, staffAccountId, new PayMembershipInvoiceAPIViewModel
+        {
+            PaymentMethod = "BANK_TRANSFER", Amount = request.Amount, ConfirmReceivedCash = request.ConfirmReceivedTransfer
+        }, "BANK_TRANSFER");
+    }
+
+    private async Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmPaymentAsync(
+        int invoiceId, string staffAccountId, PayMembershipInvoiceAPIViewModel request, string expectedMethod, string? providerEventId = null, bool isDemo = false)
+    {
         if (string.IsNullOrWhiteSpace(request.PaymentMethod))
         {
             return (PayInvoiceResult.InvalidPaymentMethod, null);
         }
 
         string normalizedPaymentMethod = request.PaymentMethod.Trim().ToUpperInvariant();
-        if (normalizedPaymentMethod != "CASH" &&
-            normalizedPaymentMethod != "BANK_TRANSFER" &&
-            normalizedPaymentMethod != "CARD")
+        if (normalizedPaymentMethod != expectedMethod)
         {
             return (PayInvoiceResult.InvalidPaymentMethod, null);
+        }
+
+        if (!request.Amount.HasValue || request.Amount.Value <= 0m ||
+            decimal.Truncate(request.Amount.Value) != request.Amount.Value || !request.ConfirmReceivedCash)
+        {
+            return (PayInvoiceResult.InvalidConfirmation, null);
         }
 
         string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
@@ -76,7 +103,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 return (PayInvoiceResult.StaffNotFound, null);
             }
 
-            if (staff.Role.Name != "Receptionist" && staff.Role.Name != "CenterManager")
+            if (staff.Role is null || (staff.Role.Name != "Receptionist" && staff.Role.Name != "CenterManager"))
             {
                 return (PayInvoiceResult.StaffRoleNotAllowed, null);
             }
@@ -93,31 +120,22 @@ public class MembershipInvoiceService : IMembershipInvoiceService
 
             string? staffFullName = staff.Receptionist?.FullName ?? staff.CenterManager?.FullName;
 
-            Member? member;
-            if (_context.Database.IsSqlServer())
-            {
-                member = await _context.Members
-                    .FromSqlRaw(
-                        "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}",
-                        memberAccountId)
-                    .Include(m => m.Account)
-                    .ThenInclude(a => a.Role)
-                    .FirstOrDefaultAsync();
-            }
-            else
-            {
-                member = await _context.Members
-                    .Include(m => m.Account)
-                    .ThenInclude(a => a.Role)
-                    .FirstOrDefaultAsync(m => m.AccountId == memberAccountId);
-            }
+            IQueryable<Member> memberQuery = _context.Database.IsSqlServer()
+                ? _context.Members.FromSqlInterpolated(
+                    $"SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {memberAccountId}")
+                : _context.Members.Where(item => item.AccountId == memberAccountId);
+            Member? member = await memberQuery
+                .Include(m => m.Account)
+                .ThenInclude(a => a.Role)
+                .FirstOrDefaultAsync();
 
             if (member is null || member.Account.Role.Name != "Member")
             {
                 return (PayInvoiceResult.MemberNotFound, null);
             }
 
-            if (!string.Equals(member.Account.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            if (member.Account.DeletedAt is not null ||
+                !string.Equals(member.Account.Status, "Active", StringComparison.OrdinalIgnoreCase))
             {
                 return (PayInvoiceResult.MemberInactive, null);
             }
@@ -125,6 +143,18 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             if (member.Account.IsLocked)
             {
                 return (PayInvoiceResult.MemberLocked, null);
+            }
+
+            // Refresh tracked state after the member lock, including requests sharing a scoped context.
+            foreach (Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<MembershipInvoice> entry in
+                _context.ChangeTracker.Entries<MembershipInvoice>().Where(item => item.Entity.MemberId == memberAccountId).ToList())
+            {
+                await entry.ReloadAsync();
+            }
+            foreach (Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<MemberSubscription> entry in
+                _context.ChangeTracker.Entries<MemberSubscription>().Where(item => item.Entity.MemberId == memberAccountId).ToList())
+            {
+                await entry.ReloadAsync();
             }
 
             MembershipInvoice? invoice = await _context.MembershipInvoices
@@ -171,15 +201,37 @@ public class MembershipInvoiceService : IMembershipInvoiceService
                 return (PayInvoiceResult.InvalidInvoiceState, null);
             }
 
-            // Upgrade quotes include prorated credit valid only on the creation date.
-            if (string.Equals(invoice.Subscription.Kind, "UPGRADE", StringComparison.OrdinalIgnoreCase))
+            today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vnTimeZone));
+            if (invoice.PaymentMethod != expectedMethod)
             {
-                DateOnly invoiceCreatedDate = DateOnly.FromDateTime(
-                    TimeZoneInfo.ConvertTimeFromUtc(invoice.CreatedAt, vnTimeZone));
-                if (invoiceCreatedDate != today)
-                {
-                    return (PayInvoiceResult.UpgradeQuoteExpired, null);
-                }
+                return (PayInvoiceResult.InvalidPaymentMethod, null);
+            }
+            if (invoice.Amount <= 0m || invoice.Amount != decimal.Truncate(invoice.Amount) ||
+                invoice.PaidAt.HasValue || invoice.PaidBy is not null)
+            {
+                return (PayInvoiceResult.DataIntegrityViolation, null);
+            }
+            if (request.Amount.Value != invoice.Amount)
+            {
+                return (PayInvoiceResult.AmountMismatch, null);
+            }
+            if (invoice.Subscription.IsSuspended || invoice.Subscription.DurationMonths <= 0)
+            {
+                return (PayInvoiceResult.InvalidSubscriptionState, null);
+            }
+            if (invoice.Subscription.Kind == "UPGRADE")
+            {
+                DateOnly quoteDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), vnTimeZone));
+                return (quoteDate != today ? PayInvoiceResult.QuoteExpired : PayInvoiceResult.UnsupportedOrderKind, null);
+            }
+            if (invoice.Subscription.Kind != "REGISTER" && invoice.Subscription.Kind != "RENEW")
+            {
+                return (PayInvoiceResult.UnsupportedOrderKind, null);
+            }
+            if (invoice.Amount != invoice.Subscription.PackagePrice)
+            {
+                return (PayInvoiceResult.DataIntegrityViolation, null);
             }
 
             MembershipPackage? package = await _context.MembershipPackages
@@ -193,6 +245,11 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             if (!package.IsActive)
             {
                 return (PayInvoiceResult.PackageInactive, null);
+            }
+            if (package.Price != invoice.Subscription.PackagePrice ||
+                package.DurationMonths != invoice.Subscription.DurationMonths)
+            {
+                return (PayInvoiceResult.PackageChanged, null);
             }
 
             MemberSubscription? latestConfirmed = await _context.MemberSubscriptions
@@ -251,22 +308,21 @@ public class MembershipInvoiceService : IMembershipInvoiceService
 
             _context.AuditLogs.Add(new AuditLog
             {
-                Id = Guid.NewGuid().ToString("N"),
-                AccountId = staffAccountId,
-                Action = "INVOICE_PAID",
-                EntityType = "MembershipInvoice",
-                EntityId = invoice.InvoiceNumber,
-                Description = $"Xác nhận thu tiền hóa đơn {invoice.InvoiceNumber} ({invoice.Amount:N0} VNĐ - {normalizedPaymentMethod}) và kích hoạt gói \"{invoice.Subscription.PackageName}\" cho hội viên {member.FullName ?? member.MemberCode}.",
+                Id = providerEventId ?? Guid.NewGuid().ToString(), AccountId = staffAccountId,
+                Action = isDemo ? DemoPaymentAuditAction : "MEMBERSHIP_INVOICE_PAID", EntityType = "MembershipInvoice",
+                EntityId = invoice.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Description = isDemo ? "SIMULATED PAYMENT: no money transferred; test membership activated."
+                    : expectedMethod + " collection confirmed; invoice PAID and subscription CONFIRMED.",
                 CreatedAt = nowUtc
             });
-
             await _context.SaveChangesAsync();
 
-            List<string> benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+            List<string> benefits = Services.Utils.MembershipBenefits.Read(invoice.Subscription.Benefits)
                 ?? new List<string>();
 
             MembershipReceiptAPIViewModel receipt = new MembershipReceiptAPIViewModel
             {
+                IsDemo = isDemo,
                 InvoiceId = invoice.Id,
                 InvoiceNumber = invoice.InvoiceNumber,
                 Amount = invoice.Amount,
@@ -301,12 +357,12 @@ public class MembershipInvoiceService : IMembershipInvoiceService
         }
         catch (Exception ex)
         {
+            await transaction.RollbackAsync();
+            _context.ChangeTracker.Clear();
             if (IsDeadlockVictim(ex))
             {
                 return (PayInvoiceResult.ConcurrencyConflict, null);
             }
-
-            await transaction.RollbackAsync();
             throw;
         }
     }
@@ -396,11 +452,13 @@ public class MembershipInvoiceService : IMembershipInvoiceService
 
         string? paidByStaffName = paidByStaff?.Receptionist?.FullName ?? paidByStaff?.CenterManager?.FullName;
 
-        List<string> benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+        List<string> benefits = Services.Utils.MembershipBenefits.Read(invoice.Subscription.Benefits)
             ?? new List<string>();
 
         MembershipReceiptAPIViewModel receipt = new MembershipReceiptAPIViewModel
         {
+            IsDemo = await _context.AuditLogs.AsNoTracking().AnyAsync(item =>
+                item.Id == "demo-payment-" + invoiceId && item.Action == DemoPaymentAuditAction),
             InvoiceId = invoice.Id,
             InvoiceNumber = invoice.InvoiceNumber,
             Amount = invoice.Amount,
@@ -564,6 +622,10 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             query = query.Skip((page.Value - 1) * pageSize).Take(pageSize);
         }
         List<MembershipInvoice> invoices = await query.ToListAsync();
+        string[] demoAuditIds = invoices.Select(item => "demo-payment-" + item.Id).ToArray();
+        HashSet<string> demoPayments = (await _context.AuditLogs.AsNoTracking()
+            .Where(item => demoAuditIds.Contains(item.Id) && item.Action == DemoPaymentAuditAction)
+            .Select(item => item.Id).ToListAsync()).ToHashSet(StringComparer.Ordinal);
 
         List<MembershipReceiptAPIViewModel> results = new List<MembershipReceiptAPIViewModel>();
         foreach (MembershipInvoice invoice in invoices)
@@ -580,7 +642,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
             List<string> benefits;
             try
             {
-                benefits = JsonSerializer.Deserialize<List<string>>(invoice.Subscription.Benefits)
+                benefits = Services.Utils.MembershipBenefits.Read(invoice.Subscription.Benefits)
                     ?? new List<string>();
             }
             catch
@@ -590,6 +652,7 @@ public class MembershipInvoiceService : IMembershipInvoiceService
 
             results.Add(new MembershipReceiptAPIViewModel
             {
+                IsDemo = demoPayments.Contains("demo-payment-" + invoice.Id),
                 InvoiceId = invoice.Id,
                 InvoiceNumber = invoice.InvoiceNumber,
                 Amount = invoice.Amount,

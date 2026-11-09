@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
 
@@ -23,7 +23,11 @@ public enum PayInvoiceResult
     StaffRoleNotAllowed,
     DataIntegrityViolation,
     ConcurrencyConflict,
-    UpgradeQuoteExpired
+    InvalidConfirmation,
+    AmountMismatch,
+    PackageChanged,
+    QuoteExpired,
+    UnsupportedOrderKind
 }
 
 public enum GetReceiptResult
@@ -52,6 +56,18 @@ public enum CancelInvoiceResult
 
 public interface IMembershipInvoiceService
 {
+    bool IsDemoPaymentEnabled();
+    Task<TransferQrSessionAPIViewModel> CreateTransferQrAsync(int invoiceId, string callerId);
+    Task<VnpayInvoiceStatusAPIViewModel> GetTransferQrStatusAsync(string token);
+    Task<VnpayInvoiceStatusAPIViewModel> ConfirmTransferQrAsync(string token, bool confirmSimulation);
+    Task<VnpayInvoiceStatusAPIViewModel> ConfirmDemoPaymentAsync(int invoiceId, string callerId, bool confirmSimulation);
+    Task<VnpayCheckoutAPIViewModel> CreateVnpayCheckoutAsync(int invoiceId, string callerId, string clientIp);
+    Task<VnpayInvoiceStatusAPIViewModel> GetVnpayInvoiceStatusAsync(int invoiceId, string callerId);
+    Task<VnpayIpnAPIViewModel> ProcessVnpayIpnAsync(IReadOnlyDictionary<string, string> query);
+    Task<BankTransferInstructionsAPIViewModel> GetBankTransferInstructionsAsync(int invoiceId, string callerId);
+    Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> ConfirmBankTransferAsync(
+        int invoiceId, string staffAccountId, ConfirmBankTransferAPIViewModel request);
+
     Task<PagedMembershipInvoiceAPIViewModel> SearchInvoicesAsync(
         string callerAccountId,
         string? memberId,

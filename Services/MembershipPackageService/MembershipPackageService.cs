@@ -449,7 +449,7 @@ public class MembershipPackageService : IMembershipPackageService
 
     private static List<string> DeserializeBenefits(string json)
     {
-        List<string>? benefits = JsonSerializer.Deserialize<List<string>>(json);
+        List<string>? benefits = Services.Utils.MembershipBenefits.Read(json);
         return benefits ?? new List<string>();
     }
 

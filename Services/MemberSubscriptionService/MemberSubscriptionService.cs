@@ -157,7 +157,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 PackageName = package.Name,
                 PackagePrice = package.Price,
                 DurationMonths = package.DurationMonths,
-                Benefits = package.Benefits,
+                Benefits = JsonSerializer.Serialize(Services.Utils.MembershipBenefits.Read(package.Benefits)),
                 StartDate = startDate,
                 EndDate = endDate,
                 Kind = kind,
@@ -180,7 +180,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             _context.MembershipInvoices.Add(invoice);
             await _context.SaveChangesAsync();
 
-            List<string> benefits = JsonSerializer.Deserialize<List<string>>(package.Benefits)
+            List<string> benefits = Services.Utils.MembershipBenefits.Read(package.Benefits)
                 ?? new List<string>();
 
             string kindLabel = kind switch
@@ -389,7 +389,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 PackageName = package.Name,
                 PackagePrice = package.Price,
                 DurationMonths = package.DurationMonths,
-                Benefits = package.Benefits,
+                Benefits = JsonSerializer.Serialize(Services.Utils.MembershipBenefits.Read(package.Benefits)),
                 StartDate = today,
                 EndDate = endDate,
                 Kind = "REGISTER",
@@ -427,7 +427,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             _context.MembershipInvoices.Add(invoice);
             await _context.SaveChangesAsync();
 
-            List<string> benefits = JsonSerializer.Deserialize<List<string>>(package.Benefits)
+            List<string> benefits = Services.Utils.MembershipBenefits.Read(package.Benefits)
                 ?? new List<string>();
             response = new CounterRegisterMemberResponseAPIViewModel
             {
@@ -692,7 +692,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 PackageName = package.Name,
                 PackagePrice = package.Price,
                 DurationMonths = package.DurationMonths,
-                Benefits = package.Benefits,
+                Benefits = JsonSerializer.Serialize(Services.Utils.MembershipBenefits.Read(package.Benefits)),
                 StartDate = startDate,
                 EndDate = endDate,
                 Kind = kind,
@@ -717,7 +717,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             _context.MembershipInvoices.Add(invoice);
             await _context.SaveChangesAsync();
 
-            List<string> benefits = JsonSerializer.Deserialize<List<string>>(package.Benefits)
+            List<string> benefits = Services.Utils.MembershipBenefits.Read(package.Benefits)
                 ?? new List<string>();
 
             string kindLabel = kind switch
