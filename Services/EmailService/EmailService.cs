@@ -74,24 +74,21 @@ public class EmailService : IEmailService
         }
     }
 
-    public async Task SendMemberWelcomeAsync(
+    public async Task SendMemberAccountWelcomeAsync(
         string recipientEmail,
         string fullName,
-        string initialPassword,
-        string packageName,
-        decimal amount)
+        string initialPassword)
     {
         ValidateConfiguration();
 
         using MailMessage message = new MailMessage
         {
             From = new MailAddress(_options.FromEmail, _options.FromName),
-            Subject = "Sports Center membership registration",
+            Subject = "Sports Center member account",
             Body = "Hello " + fullName + ",\n\n" +
-                "Your account has been created for package " + packageName +
-                " with amount " + amount + ".\n" +
+                "Your member account has been created.\n" +
                 "Initial password: " + initialPassword + "\n\n" +
-                "Please change this password after signing in.",
+                "Please sign in, change this password, read the membership terms and accept them before ordering a package.",
             IsBodyHtml = false
         };
         message.To.Add(new MailAddress(recipientEmail));

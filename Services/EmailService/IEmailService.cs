@@ -6,8 +6,7 @@ public interface IEmailService
 
     Task SendPasswordChangeOtpAsync(string recipientEmail, string otp, int expiresInMinutes);
 
-    Task SendMemberWelcomeAsync(string recipientEmail, string fullName, string initialPassword,
-        string packageName, decimal amount);
+    Task SendMemberAccountWelcomeAsync(string recipientEmail, string fullName, string initialPassword);
 
     Task SendEmailVerificationOtpAsync(string recipientEmail, string otp, string purpose, int expiresInMinutes);
 }

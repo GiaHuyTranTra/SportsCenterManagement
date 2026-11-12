@@ -78,8 +78,8 @@ public class MemberController : ControllerBase
 
     [Authorize(Roles = "Receptionist,CenterManager")]
     [HttpPost("counter-registration")]
-    public async Task<IActionResult> RegisterMemberAtCounterAsync(
-        [FromBody] CounterRegisterMemberAPIViewModel request)
+    public async Task<IActionResult> CreateMemberAtCounterAsync(
+        [FromBody] CounterCreateMemberAPIViewModel request)
     {
         string? staffAccountId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(staffAccountId))
@@ -87,43 +87,32 @@ public class MemberController : ControllerBase
             return CounterRegistrationError(401, "UNAUTHORIZED", "The account could not be identified.");
         }
 
-        (CounterRegisterMemberResult Result, CounterRegisterMemberResponseAPIViewModel? Data) result =
-            await _memberSubscriptionService.RegisterMemberAtCounterAsync(
+        (CounterCreateMemberResult Result, CounterCreateMemberResponseAPIViewModel? Data) result =
+            await _memberSubscriptionService.CreateMemberAccountAtCounterAsync(
                 staffAccountId,
                 request);
 
         switch (result.Result)
         {
-            case CounterRegisterMemberResult.Success when result.Data is not null:
+            case CounterCreateMemberResult.Success when result.Data is not null:
                 return StatusCode(StatusCodes.Status201Created, result.Data);
-            case CounterRegisterMemberResult.InvalidData:
+            case CounterCreateMemberResult.InvalidData:
                 return CounterRegistrationError(400, "INVALID_MEMBER_DATA", "Invalid member registration data.");
-            case CounterRegisterMemberResult.InvalidPaymentMethod:
-                return CounterRegistrationError(400, "INVALID_PAYMENT_METHOD", "Invalid payment method.");
-            case CounterRegisterMemberResult.StaffNotFound:
+            case CounterCreateMemberResult.StaffNotFound:
                 return CounterRegistrationError(404, "STAFF_NOT_FOUND", "Staff account not found.");
-            case CounterRegisterMemberResult.PackageNotFound:
-                return CounterRegistrationError(404, "PACKAGE_NOT_FOUND", "Membership package not found.");
-            case CounterRegisterMemberResult.StaffRoleNotAllowed:
+            case CounterCreateMemberResult.StaffRoleNotAllowed:
                 return CounterRegistrationError(403, "FORBIDDEN", "Staff role does not permit counter registration.");
-            case CounterRegisterMemberResult.StaffInactive:
+            case CounterCreateMemberResult.StaffInactive:
                 return CounterRegistrationError(403, "STAFF_INACTIVE", "Staff account is inactive.");
-            case CounterRegisterMemberResult.StaffLocked:
+            case CounterCreateMemberResult.StaffLocked:
                 return CounterRegistrationError(423, "STAFF_LOCKED", "Staff account is locked.");
-            case CounterRegisterMemberResult.DuplicateEmail:
+            case CounterCreateMemberResult.DuplicateEmail:
                 return CounterRegistrationError(409, "DUPLICATE_EMAIL", "Email already exists.");
-            case CounterRegisterMemberResult.DuplicatePhone:
+            case CounterCreateMemberResult.DuplicatePhone:
                 return CounterRegistrationError(409, "DUPLICATE_PHONE", "Phone number already exists.");
-            case CounterRegisterMemberResult.PackageInactive:
-                return CounterRegistrationError(409, "PACKAGE_INACTIVE", "Membership package is inactive.");
-            case CounterRegisterMemberResult.PendingOrderExists:
-                return CounterRegistrationError(409, "PENDING_ORDER_EXISTS", "A pending order already exists.");
-            case CounterRegisterMemberResult.PriceChanged:
-                return CounterRegistrationError(409, "PRICE_CHANGED", "The package price changed. Reload packages and retry.");
-            case CounterRegisterMemberResult.InvoiceNumberCollision:
-            case CounterRegisterMemberResult.ConcurrencyConflict:
+            case CounterCreateMemberResult.ConcurrencyConflict:
                 return CounterRegistrationError(409, "CONCURRENCY_CONFLICT", "Data changed during registration. Please retry.");
-            case CounterRegisterMemberResult.MemberRoleMissing:
+            case CounterCreateMemberResult.MemberRoleMissing:
             default:
                 return CounterRegistrationError(500, "INTERNAL_ERROR", "Counter registration could not be completed.");
         }

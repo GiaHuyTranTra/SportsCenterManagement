@@ -244,36 +244,19 @@ public class MemberSubscriptionService : IMemberSubscriptionService
         }
     }
 
-    public async Task<(CounterRegisterMemberResult Result, CounterRegisterMemberResponseAPIViewModel? Data)>
-        RegisterMemberAtCounterAsync(
+    public async Task<(CounterCreateMemberResult Result, CounterCreateMemberResponseAPIViewModel? Data)>
+        CreateMemberAccountAtCounterAsync(
             string staffAccountId,
-            CounterRegisterMemberAPIViewModel request)
+            CounterCreateMemberAPIViewModel request)
     {
-        (string? fullName, string? email, string? phone, string? paymentMethod) =
-            NormalizeCounterRegistration(request);
-
-        if (paymentMethod is null)
-        {
-            return (CounterRegisterMemberResult.InvalidPaymentMethod, null);
-        }
+        (string? fullName, string? email, string? phone) = NormalizeCounterMember(request);
 
         if (fullName is null || email is null || phone is null)
         {
-            return (CounterRegisterMemberResult.InvalidData, null);
+            return (CounterCreateMemberResult.InvalidData, null);
         }
 
-        if (!request.PackageId.HasValue || request.PackageId.Value <= 0 ||
-            !request.ExpectedPrice.HasValue || request.ExpectedPrice.Value <= 0m)
-        {
-            return (CounterRegisterMemberResult.InvalidData, null);
-        }
-
-        string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
-            ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured.");
-        TimeZoneInfo businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-        DateOnly today = DateOnly.FromDateTime(
-            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, businessTimeZone));
-        CounterRegisterMemberResponseAPIViewModel? response = null;
+        CounterCreateMemberResponseAPIViewModel? response = null;
         string initialPassword = GenerateInitialPassword();
 
         await using IDbContextTransaction transaction =
@@ -289,25 +272,25 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             if (staff is null)
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.StaffNotFound, null);
+                return (CounterCreateMemberResult.StaffNotFound, null);
             }
 
             if (staff.Role.Name != "CenterManager" && staff.Role.Name != "Receptionist")
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.StaffRoleNotAllowed, null);
+                return (CounterCreateMemberResult.StaffRoleNotAllowed, null);
             }
 
             if (staff.Status != "Active" || staff.DeletedAt is not null)
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.StaffInactive, null);
+                return (CounterCreateMemberResult.StaffInactive, null);
             }
 
             if (staff.IsLocked)
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.StaffLocked, null);
+                return (CounterCreateMemberResult.StaffLocked, null);
             }
 
             Role? memberRole = await _context.Roles
@@ -315,27 +298,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             if (memberRole is null)
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.MemberRoleMissing, null);
-            }
-
-            MembershipPackage? package = await _context.MembershipPackages
-                .FirstOrDefaultAsync(candidate => candidate.Id == request.PackageId.Value);
-            if (package is null)
-            {
-                await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.PackageNotFound, null);
-            }
-
-            if (!package.IsActive)
-            {
-                await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.PackageInactive, null);
-            }
-
-            if (package.Price != request.ExpectedPrice.Value)
-            {
-                await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.PriceChanged, null);
+                return (CounterCreateMemberResult.MemberRoleMissing, null);
             }
 
             bool duplicateEmail = await _context.Accounts
@@ -343,7 +306,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             if (duplicateEmail)
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.DuplicateEmail, null);
+                return (CounterCreateMemberResult.DuplicateEmail, null);
             }
 
             bool duplicatePhone = await _context.Accounts
@@ -351,12 +314,11 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             if (duplicatePhone)
             {
                 await transaction.RollbackAsync();
-                return (CounterRegisterMemberResult.DuplicatePhone, null);
+                return (CounterCreateMemberResult.DuplicatePhone, null);
             }
 
             DateTime nowUtc = DateTime.UtcNow;
             string memberCode = await GenerateUniqueMemberCodeAsync();
-            string invoiceNumber = await GenerateUniqueInvoiceNumberAsync(nowUtc);
             Account account = new Account
             {
                 Id = Guid.NewGuid().ToString(),
@@ -381,84 +343,22 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             };
             account.Member = member;
 
-            DateOnly endDate = today.AddMonths(package.DurationMonths).AddDays(-1);
-            MemberSubscription subscription = new MemberSubscription
-            {
-                MemberId = account.Id,
-                PackageId = package.Id,
-                PackageName = package.Name,
-                PackagePrice = package.Price,
-                DurationMonths = package.DurationMonths,
-                Benefits = JsonSerializer.Serialize(Services.Utils.MembershipBenefits.Read(package.Benefits)),
-                StartDate = today,
-                EndDate = endDate,
-                Kind = "REGISTER",
-                Status = "PENDING_PAYMENT",
-                IsSuspended = false,
-                CreatedAt = nowUtc,
-                Member = member,
-                Package = package
-            };
-            MembershipInvoice invoice = new MembershipInvoice
-            {
-                InvoiceNumber = invoiceNumber,
-                MemberId = account.Id,
-                Amount = package.Price,
-                Status = "PENDING_PAYMENT",
-                PaymentMethod = paymentMethod,
-                CreatedBy = staff.Id,
-                CreatedAt = nowUtc,
-                Member = member,
-                Subscription = subscription,
-                CreatedByNavigation = staff
-            };
-
             _context.Accounts.Add(account);
             _context.AuditLogs.Add(new AuditLog
             {
                 Id = Guid.NewGuid().ToString("N"),
                 AccountId = staff.Id,
-                Action = "COUNTER_MEMBER_REGISTERED",
+                Action = "COUNTER_MEMBER_CREATED",
                 EntityType = "Member",
                 EntityId = account.Id,
-                Description = $"Đăng ký thành viên mới tại quầy: {fullName} ({memberCode}) kèm gói \"{package.Name}\" ({invoiceNumber}).",
+                Description = $"Tạo tài khoản học viên tại quầy: {fullName} ({memberCode}). Học viên phải tự đăng nhập và chấp nhận điều khoản trước khi mua gói.",
                 CreatedAt = nowUtc
             });
-            _context.MembershipInvoices.Add(invoice);
             await _context.SaveChangesAsync();
 
-            List<string> benefits = Services.Utils.MembershipBenefits.Read(package.Benefits)
-                ?? new List<string>();
-            response = new CounterRegisterMemberResponseAPIViewModel
+            response = new CounterCreateMemberResponseAPIViewModel
             {
                 Member = MapMemberDetail(member),
-                Receipt = new MembershipReceiptAPIViewModel
-                {
-                    InvoiceId = invoice.Id,
-                    InvoiceNumber = invoice.InvoiceNumber,
-                    Amount = invoice.Amount,
-                    PaymentMethod = invoice.PaymentMethod,
-                    InvoiceStatus = invoice.Status,
-                    CreatedAt = invoice.CreatedAt,
-                    PaidAt = null,
-                    PaidByStaffId = null,
-                    PaidByStaffName = null,
-                    SubscriptionId = subscription.Id,
-                    SubscriptionStatus = subscription.Status,
-                    Kind = subscription.Kind,
-                    StartDate = subscription.StartDate,
-                    EndDate = subscription.EndDate,
-                    PackageId = package.Id,
-                    PackageName = package.Name,
-                    PackagePrice = package.Price,
-                    DurationMonths = package.DurationMonths,
-                    Benefits = benefits,
-                    MemberAccountId = member.AccountId,
-                    MemberCode = member.MemberCode,
-                    MemberFullName = member.FullName,
-                    MemberEmail = account.Email,
-                    MemberPhone = account.Phone
-                },
                 EmailDelivery = "NOT_CONFIGURED"
             };
 
@@ -470,27 +370,17 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             if (IsDeadlockVictim(exception) || exception is DbUpdateConcurrencyException)
             {
-                return (CounterRegisterMemberResult.ConcurrencyConflict, null);
-            }
-
-            if (IsSpecificUniqueConstraintViolation(exception, "UQ_MembershipInvoice_InvoiceNumber"))
-            {
-                return (CounterRegisterMemberResult.InvoiceNumberCollision, null);
-            }
-
-            if (IsSpecificUniqueConstraintViolation(exception, "UQ_MemberSubscription_Pending_Member"))
-            {
-                return (CounterRegisterMemberResult.PendingOrderExists, null);
+                return (CounterCreateMemberResult.ConcurrencyConflict, null);
             }
 
             if (IsSpecificUniqueConstraintViolation(exception, "UQ__Account__A9D105343F8562DD"))
             {
-                return (CounterRegisterMemberResult.DuplicateEmail, null);
+                return (CounterCreateMemberResult.DuplicateEmail, null);
             }
 
             if (IsSpecificUniqueConstraintViolation(exception, "UQ_Account_Phone"))
             {
-                return (CounterRegisterMemberResult.DuplicatePhone, null);
+                return (CounterCreateMemberResult.DuplicatePhone, null);
             }
 
             throw;
@@ -505,12 +395,10 @@ public class MemberSubscriptionService : IMemberSubscriptionService
         {
             try
             {
-                await _emailService.SendMemberWelcomeAsync(
+                await _emailService.SendMemberAccountWelcomeAsync(
                     response.Member.Email,
                     response.Member.FullName ?? string.Empty,
-                    initialPassword,
-                    response.Receipt.PackageName,
-                    response.Receipt.Amount);
+                    initialPassword);
                 response.EmailDelivery = "SENT";
             }
             catch (Exception)
@@ -519,7 +407,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             }
         }
 
-        return (CounterRegisterMemberResult.Success, response);
+        return (CounterCreateMemberResult.Success, response);
     }
 
     public async Task<(CounterRegisterResult Result, MembershipReceiptAPIViewModel? Receipt, PendingOrderConflictResponseAPIViewModel? PendingInfo)> CounterRegisterOrRenewAsync(
@@ -849,30 +737,15 @@ public class MemberSubscriptionService : IMemberSubscriptionService
         return ("RENEW", renewStart, package.Price);
     }
 
-    private static (
-        string? FullName,
-        string? Email,
-        string? Phone,
-        string? PaymentMethod) NormalizeCounterRegistration(
-            CounterRegisterMemberAPIViewModel request)
+    private static (string? FullName, string? Email, string? Phone) NormalizeCounterMember(
+        CounterCreateMemberAPIViewModel request)
     {
         string normalizedFullName = request.FullName?.Trim() ?? string.Empty;
         string normalizedEmail = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
         string normalizedPhone = request.Phone?.Trim() ?? string.Empty;
-        string normalizedPaymentMethod = request.PaymentMethod?.Trim().ToUpperInvariant()
-            ?? string.Empty;
         bool validPhone = normalizedPhone.Length == 10 &&
             normalizedPhone[0] == '0' &&
             normalizedPhone.All(character => character >= '0' && character <= '9');
-        bool validPaymentMethod = normalizedPaymentMethod == "CASH" ||
-            normalizedPaymentMethod == "BANK_TRANSFER" ||
-            normalizedPaymentMethod == "CARD";
-
-        if (!validPaymentMethod)
-        {
-            return (null, null, null, null);
-        }
-
         if (normalizedFullName.Length < 2 ||
             normalizedFullName.Length > 100 ||
             normalizedEmail.Length == 0 ||
@@ -882,14 +755,13 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             !request.DateOfBirth.HasValue ||
             request.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
         {
-            return (null, null, null, normalizedPaymentMethod);
+            return (null, null, null);
         }
 
         return (
             normalizedFullName,
             normalizedEmail,
-            normalizedPhone,
-            normalizedPaymentMethod);
+            normalizedPhone);
     }
 
     private async Task<string> GenerateUniqueMemberCodeAsync()
