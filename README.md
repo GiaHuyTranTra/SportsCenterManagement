@@ -2,6 +2,22 @@
 
 Ngày tổng hợp: 15/10/2026. Dự án: Sports Center Management System.
 
+## Luồng điều khoản và đăng ký gói hiện hành (12/11/2026)
+
+- Lễ tân chỉ tạo tài khoản qua `POST /api/Member/counter-registration`; thao tác này không tạo gói hoặc hóa đơn.
+- Học viên phải tự đăng nhập bằng tài khoản của họ, đọc bản điều khoản từ `GET /api/MembershipTerms/current` và xác nhận bằng `POST /api/MembershipTerms/current/accept`. Nhân viên chỉ được xem trạng thái qua `GET /api/MembershipTerms/members/{memberId}/status`, không được xác nhận thay.
+- Đơn chưa thanh toán có thể hủy. Gói đã `PAID`/`CONFIRMED` không thể hủy và trả mã `CONFIRMED_SUBSCRIPTION_CANNOT_BE_CANCELED`.
+- Gia hạn, nâng, hạ hoặc đổi gói đều tính nguyên giá và bắt đầu từ ngày liền sau kỳ `CONFIRMED` gần nhất; không cắt ngắn hoặc thay đổi gói đang sử dụng giữa kỳ.
+- Quyền bộ môn được chụp vào `MemberSubscriptionDiscipline` lúc tạo đơn. Thay đổi danh mục gói về sau không làm mất quyền đã mua; `HasDisciplineRestrictions=false` nghĩa là không giới hạn bộ môn.
+
+Áp dụng schema bằng `Database/2026-11-12-membership-terms-scheduled-packages.sql`. Script có preflight và cố ý dừng nếu dữ liệu hiện tại có nhiều hơn một gói tương lai cho cùng học viên; phải xử lý dữ liệu tài chính đó có chủ đích, không xóa tự động. Sau khi cấu hình connection string và SMTP/JWT theo môi trường:
+
+```powershell
+dotnet restore
+dotnet run --project SportsCenterManagement/SportsCenterManagement.csproj
+dotnet test SportsCenterManagement.Tests/SportsCenterManagement.Tests.csproj
+```
+
 ## 1. Phạm vi và kết luận
 
 Báo cáo đối chiếu **đủ 37 endpoint** trong §3 của `API_SPECIFICATION_SPRINT2_UNIFIED.md` ngày 13/10/2026: 34 endpoint Sprint 2 và 3 endpoint tái sử dụng Sprint 1, phục vụ UC17–UC32. Đường dẫn thực tế có tiền tố `/api`. `Manager` trong đặc tả tương ứng role **CenterManager**.
