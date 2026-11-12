@@ -259,7 +259,7 @@ public class MemberSubscriptionServiceTests
         await fixture.Context.SaveChangesAsync();
         Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
 
-        Assert.Equal(Services.MembershipInvoiceService.CancelInvoiceResult.InvalidInvoiceState,
+        Assert.Equal(Services.MembershipInvoiceService.CancelInvoiceResult.ConfirmedSubscriptionCannotBeCanceled,
             await service.CancelPendingInvoiceAsync(invoice.Id, fixture.Manager.Id));
         fixture.Context.ChangeTracker.Clear();
         Assert.Equal("PAID", (await fixture.Context.MembershipInvoices.SingleAsync()).Status);

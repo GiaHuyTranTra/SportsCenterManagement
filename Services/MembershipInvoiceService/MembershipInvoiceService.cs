@@ -219,13 +219,10 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             {
                 return (PayInvoiceResult.InvalidSubscriptionState, null);
             }
-            if (invoice.Subscription.Kind == "UPGRADE")
-            {
-                DateOnly quoteDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), vnTimeZone));
-                return (quoteDate != today ? PayInvoiceResult.QuoteExpired : PayInvoiceResult.UnsupportedOrderKind, null);
-            }
-            if (invoice.Subscription.Kind != "REGISTER" && invoice.Subscription.Kind != "RENEW")
+            string normalizedKind = invoice.Subscription.Kind.Trim().ToUpperInvariant();
+            if (normalizedKind != "REGISTER" && normalizedKind != "RENEW" &&
+                normalizedKind != "UPGRADE" && normalizedKind != "DOWNGRADE" &&
+                normalizedKind != "CHANGE")
             {
                 return (PayInvoiceResult.UnsupportedOrderKind, null);
             }
@@ -246,60 +243,46 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             {
                 return (PayInvoiceResult.PackageInactive, null);
             }
-            if (package.Price != invoice.Subscription.PackagePrice ||
-                package.DurationMonths != invoice.Subscription.DurationMonths)
-            {
-                return (PayInvoiceResult.PackageChanged, null);
-            }
-
             MemberSubscription? latestConfirmed = await _context.MemberSubscriptions
                 .Where(s => s.MemberId == memberAccountId && s.Status == "CONFIRMED" && s.Id != invoice.Subscription.Id)
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
-
-            string kind;
-            DateOnly startDate;
-
-            if (string.Equals(invoice.Subscription.Kind, "UPGRADE", StringComparison.OrdinalIgnoreCase))
+            DateOnly orderDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), vnTimeZone));
+            DateOnly expectedStart;
+            string expectedKind;
+            if (latestConfirmed is null)
             {
-                kind = "UPGRADE";
-                startDate = today;
-
-                if (latestConfirmed is not null && latestConfirmed.EndDate >= today)
-                {
-                    DateOnly yesterday = today.AddDays(-1);
-                    if (latestConfirmed.StartDate > yesterday)
-                    {
-                        latestConfirmed.StartDate = yesterday;
-                    }
-                    latestConfirmed.EndDate = yesterday;
-                }
+                expectedStart = orderDate;
+                expectedKind = "REGISTER";
             }
-            else if (string.Equals(invoice.Subscription.Kind, "DOWNGRADE", StringComparison.OrdinalIgnoreCase))
+            else if (latestConfirmed.EndDate < orderDate)
             {
-                kind = "DOWNGRADE";
-                startDate = latestConfirmed is not null && latestConfirmed.EndDate >= today
-                    ? latestConfirmed.EndDate.AddDays(1)
-                    : today;
-            }
-            else if (latestConfirmed is null)
-            {
-                kind = "REGISTER";
-                startDate = today;
+                expectedStart = orderDate;
+                expectedKind = latestConfirmed.PackageId == invoice.Subscription.PackageId ? "RENEW" : "REGISTER";
             }
             else
             {
-                kind = "RENEW";
-                startDate = latestConfirmed.EndDate >= today ? latestConfirmed.EndDate.AddDays(1) : today;
+                expectedStart = latestConfirmed.EndDate.AddDays(1);
+                expectedKind = latestConfirmed.PackageId == invoice.Subscription.PackageId
+                    ? "RENEW"
+                    : invoice.Subscription.PackagePrice > latestConfirmed.PackagePrice
+                        ? "UPGRADE"
+                        : invoice.Subscription.PackagePrice < latestConfirmed.PackagePrice
+                            ? "DOWNGRADE"
+                            : "CHANGE";
             }
-
-            DateOnly endDate = startDate.AddMonths(invoice.Subscription.DurationMonths).AddDays(-1);
+            DateOnly expectedEnd = invoice.Subscription.StartDate
+                .AddMonths(invoice.Subscription.DurationMonths).AddDays(-1);
+            if (invoice.Subscription.StartDate != expectedStart ||
+                invoice.Subscription.EndDate != expectedEnd ||
+                normalizedKind != expectedKind)
+            {
+                return (PayInvoiceResult.InvalidSubscriptionState, null);
+            }
 
             DateTime nowUtc = DateTime.UtcNow;
             invoice.Subscription.Status = "CONFIRMED";
-            invoice.Subscription.Kind = kind;
-            invoice.Subscription.StartDate = startDate;
-            invoice.Subscription.EndDate = endDate;
 
             invoice.Status = "PAID";
             invoice.PaymentMethod = normalizedPaymentMethod;
@@ -766,6 +749,11 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             if (invoice.MemberId != memberId)
             {
                 return CancelInvoiceResult.InvoiceNotFound;
+            }
+
+            if (invoice.Status == "PAID" && invoice.Subscription?.Status == "CONFIRMED")
+            {
+                return CancelInvoiceResult.ConfirmedSubscriptionCannotBeCanceled;
             }
 
             if (invoice.Status != "PENDING_PAYMENT")

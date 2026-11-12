@@ -21,13 +21,18 @@ public static class ClassEligibility
         if (subscriptions.Count == 0)
             throw new BusinessRuleException("MEMBERSHIP_NOT_VALID_FOR_SESSION", "Gói tập không hợp lệ vào ngày học.");
 
-        List<int> packageIds = subscriptions.Select(item => item.PackageId).Distinct().ToList();
-        List<MembershipPackageSport> restrictions = await context.MembershipPackageSports.AsNoTracking()
-            .Where(item => packageIds.Contains(item.PackageId)).ToListAsync();
+        List<int> restrictedSubscriptionIds = subscriptions
+            .Where(item => item.HasDisciplineRestrictions)
+            .Select(item => item.Id)
+            .ToList();
+        List<MemberSubscriptionDiscipline> restrictions = await context.MemberSubscriptionDisciplines
+            .AsNoTracking()
+            .Where(item => restrictedSubscriptionIds.Contains(item.SubscriptionId))
+            .ToListAsync();
         foreach (MemberSubscription subscription in subscriptions)
         {
-            if (!restrictions.Any(item => item.PackageId == subscription.PackageId) ||
-                restrictions.Any(item => item.PackageId == subscription.PackageId && item.DisciplineId == disciplineId))
+            if (!subscription.HasDisciplineRestrictions ||
+                restrictions.Any(item => item.SubscriptionId == subscription.Id && item.DisciplineId == disciplineId))
                 return subscription.Id;
         }
         throw new BusinessRuleException("PACKAGE_NOT_ELIGIBLE", "Gói tập không cho phép tham gia bộ môn này.");

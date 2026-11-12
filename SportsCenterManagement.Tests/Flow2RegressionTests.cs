@@ -117,7 +117,12 @@ public partial class ClassRegistrationServiceTests
         await RegistrationService(context).RegisterAsync("member-1", 1, "MEMBER", "member-1");
         context.Disciplines.Add(new Discipline { Id = 2, Name = "Swimming", IsActive = true });
         context.Classes.Add(new Class { Id = 2, DisciplineId = 2, Name = "Swimming Class", Status = "OPEN", Capacity = 10 });
-        context.MembershipPackageSports.Add(new MembershipPackageSport { PackageId = 1, DisciplineId = 1 });
+        MemberSubscription subscription = await context.MemberSubscriptions.SingleAsync();
+        subscription.HasDisciplineRestrictions = true;
+        subscription.SubscriptionDisciplines.Add(new MemberSubscriptionDiscipline
+        {
+            SubscriptionId = subscription.Id, DisciplineId = 1, DisciplineName = "Yoga"
+        });
         await context.SaveChangesAsync();
         BusinessRuleException error = await Assert.ThrowsAsync<BusinessRuleException>(() =>
             SessionService(context).UpdateSessionAsync("coach-1", 1, new UpdateClassSessionAPIViewModel

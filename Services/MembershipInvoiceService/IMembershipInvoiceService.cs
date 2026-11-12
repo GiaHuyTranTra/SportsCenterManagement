@@ -47,6 +47,7 @@ public enum CancelInvoiceResult
     Success,
     InvoiceNotFound,
     InvalidInvoiceState,
+    ConfirmedSubscriptionCannotBeCanceled,
     CallerNotFound,
     CallerInactive,
     CallerLocked,

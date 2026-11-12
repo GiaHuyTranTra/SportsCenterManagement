@@ -74,7 +74,7 @@ internal sealed class ReportTestFixture : IAsyncDisposable
             PackagePrice = Package.Price, DurationMonths = 1, Benefits = "[]",
             StartDate = new(2026, 10, 1), EndDate = new(2026, 10, 31), Kind = kind,
             Status = status == "PAID" ? "CONFIRMED" : status,
-            CreatedAt = new(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc)
+            CreatedAt = new(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc)
         };
         MembershipInvoice invoice = new()
         {

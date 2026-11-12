@@ -54,8 +54,6 @@ public sealed class CashPaymentServiceTests
     [InlineData("cardInvoice", PayInvoiceResult.InvalidPaymentMethod)]
     [InlineData("bankInvoice", PayInvoiceResult.InvalidPaymentMethod)]
     [InlineData("canceled", PayInvoiceResult.InvalidInvoiceState)]
-    [InlineData("price", PayInvoiceResult.PackageChanged)]
-    [InlineData("duration", PayInvoiceResult.PackageChanged)]
     [InlineData("inactivePackage", PayInvoiceResult.PackageInactive)]
     [InlineData("inactiveMember", PayInvoiceResult.MemberInactive)]
     [InlineData("deletedMember", PayInvoiceResult.MemberInactive)]
@@ -63,8 +61,6 @@ public sealed class CashPaymentServiceTests
     [InlineData("suspended", PayInvoiceResult.InvalidSubscriptionState)]
     [InlineData("mismatchedSnapshot", PayInvoiceResult.DataIntegrityViolation)]
     [InlineData("paidMetadata", PayInvoiceResult.DataIntegrityViolation)]
-    [InlineData("staleUpgrade", PayInvoiceResult.QuoteExpired)]
-    [InlineData("upgrade", PayInvoiceResult.UnsupportedOrderKind)]
     [InlineData("unknownKind", PayInvoiceResult.UnsupportedOrderKind)]
     public async Task InvalidCollection_PreservesInvoiceSubscriptionAndAudit(string scenario, PayInvoiceResult expected)
     {
@@ -81,8 +77,6 @@ public sealed class CashPaymentServiceTests
             case "cardInvoice": invoice.PaymentMethod = "CARD"; break;
             case "bankInvoice": invoice.PaymentMethod = "BANK_TRANSFER"; break;
             case "canceled": invoice.Status = "CANCELED"; invoice.Subscription.Status = "CANCELED"; break;
-            case "price": fixture.Package.Price++; break;
-            case "duration": fixture.Package.DurationMonths = 3; break;
             case "inactivePackage": fixture.Package.IsActive = false; break;
             case "inactiveMember": fixture.Member.Account.Status = "Inactive"; break;
             case "deletedMember": fixture.Member.Account.DeletedAt = DateTime.UtcNow; break;
@@ -90,8 +84,6 @@ public sealed class CashPaymentServiceTests
             case "suspended": invoice.Subscription.IsSuspended = true; break;
             case "mismatchedSnapshot": invoice.Subscription.PackagePrice = 1m; break;
             case "paidMetadata": invoice.PaidAt = DateTime.UtcNow; break;
-            case "staleUpgrade": invoice.Subscription.Kind = "UPGRADE"; invoice.CreatedAt = DateTime.UtcNow.AddDays(-2); break;
-            case "upgrade": invoice.Subscription.Kind = "UPGRADE"; invoice.CreatedAt = DateTime.UtcNow; break;
             case "unknownKind": invoice.Subscription.Kind = "UNKNOWN"; break;
         }
         await fixture.Context.SaveChangesAsync();
@@ -140,13 +132,16 @@ public sealed class CashPaymentServiceTests
     }
 
     [Fact]
-    public async Task RenewalStartsAfterLatestConfirmedPeriod()
+    public async Task ScheduledRenewalPreservesStartAfterLatestConfirmedPeriod()
     {
         await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
         MembershipInvoice paid = fixture.AddInvoice(500000m, "PAID", DateTime.UtcNow);
         DateOnly futureEnd = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(20));
         paid.Subscription.EndDate = futureEnd;
         MembershipInvoice pending = fixture.AddInvoice(500000m, "PENDING_PAYMENT", null);
+        pending.Subscription.Kind = "RENEW";
+        pending.Subscription.StartDate = futureEnd.AddDays(1);
+        pending.Subscription.EndDate = pending.Subscription.StartDate.AddMonths(1).AddDays(-1);
         await fixture.Context.SaveChangesAsync();
         MembershipInvoiceService service = new MembershipInvoiceService(fixture.Context, fixture.Configuration);
         (PayInvoiceResult result, MembershipReceiptAPIViewModel? receipt) =
@@ -154,6 +149,47 @@ public sealed class CashPaymentServiceTests
         Assert.Equal(PayInvoiceResult.Success, result);
         Assert.Equal("RENEW", receipt!.Kind);
         Assert.Equal(futureEnd.AddDays(1), receipt.StartDate);
+    }
+
+    [Fact]
+    public async Task ScheduledUpgrade_ChargesFullSnapshotAndPreservesEarlierPeriodAndCatalogSnapshot()
+    {
+        await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
+        MembershipInvoice previous = fixture.AddInvoice(500000m, "PAID", DateTime.UtcNow);
+        previous.Subscription.PackagePrice = 300000m;
+        previous.Subscription.StartDate = new DateOnly(2026, 11, 1);
+        previous.Subscription.EndDate = new DateOnly(2026, 11, 30);
+        MembershipInvoice pending = fixture.AddInvoice(500000m, "PENDING_PAYMENT", null);
+        MembershipPackage upgradedPackage = new()
+        {
+            Name = "Captured upgrade", Price = 500000m, DurationMonths = 1, Benefits = "[]",
+            IsActive = true, CreatedAt = DateTime.UtcNow
+        };
+        fixture.Context.MembershipPackages.Add(upgradedPackage);
+        pending.Subscription.Package = upgradedPackage;
+        pending.Subscription.PackagePrice = upgradedPackage.Price;
+        pending.Subscription.Kind = "UPGRADE";
+        pending.Subscription.StartDate = previous.Subscription.EndDate.AddDays(1);
+        pending.Subscription.EndDate = pending.Subscription.StartDate.AddMonths(1).AddDays(-1);
+        DateOnly previousStart = previous.Subscription.StartDate;
+        DateOnly previousEnd = previous.Subscription.EndDate;
+        DateOnly scheduledStart = pending.Subscription.StartDate;
+        upgradedPackage.Price = 900000m;
+        upgradedPackage.DurationMonths = 3;
+        await fixture.Context.SaveChangesAsync();
+
+        (PayInvoiceResult result, MembershipReceiptAPIViewModel? receipt) =
+            await new MembershipInvoiceService(fixture.Context, fixture.Configuration)
+                .PayInvoiceAsync(pending.Id, fixture.Manager.Id, Request());
+
+        Assert.Equal(PayInvoiceResult.Success, result);
+        Assert.Equal("UPGRADE", receipt!.Kind);
+        Assert.Equal(500000m, receipt.Amount);
+        Assert.Equal(scheduledStart, receipt.StartDate);
+        Assert.Equal(previousStart, previous.Subscription.StartDate);
+        Assert.Equal(previousEnd, previous.Subscription.EndDate);
+        Assert.Equal(500000m, pending.Subscription.PackagePrice);
+        Assert.Equal(1, pending.Subscription.DurationMonths);
     }
 
     [Fact]

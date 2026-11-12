@@ -216,6 +216,11 @@ public class MembershipInvoiceController : ControllerBase
                 return NotFound("Membership invoice not found.");
             case CancelInvoiceResult.InvalidInvoiceState:
                 return BadRequest("Only invoices in PENDING_PAYMENT state can be canceled.");
+            case CancelInvoiceResult.ConfirmedSubscriptionCannotBeCanceled:
+                return InvoiceQueryError(
+                    StatusCodes.Status409Conflict,
+                    "CONFIRMED_SUBSCRIPTION_CANNOT_BE_CANCELED",
+                    "Gói đã thanh toán và xác nhận không thể hủy.");
             case CancelInvoiceResult.CallerNotFound:
                 return NotFound("Account not found.");
             case CancelInvoiceResult.CallerRoleNotAllowed:
