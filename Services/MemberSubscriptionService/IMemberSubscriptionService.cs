@@ -17,6 +17,7 @@ public enum RegisterSubscriptionResult
     MemberNotFound,
     MemberInactive,
     MemberLocked,
+    TermsAcceptanceRequired,
     InvalidPaymentMethod,
     ConcurrencyConflict
 }
@@ -39,6 +40,7 @@ public enum CounterRegisterResult
     StaffInactive,
     StaffLocked,
     StaffRoleNotAllowed,
+    TermsAcceptanceRequired,
     InvoiceNumberCollision,
     DataIntegrityViolation,
     ConcurrencyConflict

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Services.EmailService;
 using Services.MemberSubscriptionService;
 using Services.PasswordHashService;
+using Services.MembershipTermsService;
 using System.Text.Json;
 
 namespace SportsCenterManagement.Tests;
@@ -488,7 +489,8 @@ public class MemberSubscriptionServiceTests
                 context,
                 configuration,
                 new PasswordHashService(),
-                email);
+                email,
+                new MembershipTermsService(context));
 
             return new MemberSubscriptionServiceTestFixture(
                 connection,

@@ -15,8 +15,11 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Services.EmailService;
 using Services.PasswordHashService;
+using Services.MembershipTermsService;
 
 namespace Services.MemberSubscriptionService;
+
+public sealed record SubscriptionOrderQuote(string Kind, DateOnly StartDate, decimal Amount);
 
 public class MemberSubscriptionService : IMemberSubscriptionService
 {
@@ -24,17 +27,23 @@ public class MemberSubscriptionService : IMemberSubscriptionService
     private readonly IConfiguration _configuration;
     private readonly IPasswordHashService _passwordHashService;
     private readonly IEmailService _emailService;
+    private readonly IMembershipTermsService _membershipTermsService;
+    private readonly TimeProvider _timeProvider;
 
     public MemberSubscriptionService(
         SportsCenterManagementContext context,
         IConfiguration configuration,
         IPasswordHashService passwordHashService,
-        IEmailService emailService)
+        IEmailService emailService,
+        IMembershipTermsService membershipTermsService,
+        TimeProvider? timeProvider = null)
     {
         _context = context;
         _configuration = configuration;
         _passwordHashService = passwordHashService;
         _emailService = emailService;
+        _membershipTermsService = membershipTermsService;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<(RegisterSubscriptionResult Result, MemberSubscriptionDetailAPIViewModel? Data)> RegisterOrRenewAsync(
@@ -59,20 +68,18 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             return (RegisterSubscriptionResult.InvalidPaymentMethod, null);
         }
 
-        string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
-            ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured.");
-        TimeZoneInfo vnTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-        DateOnly today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vnTimeZone));
+        DateOnly today = GetBusinessDate();
 
         await using IDbContextTransaction transaction =
             await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
 
         try
         {
-            Member? member = await _context.Members
-                .FromSqlRaw(
-                    "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}",
-                    accountId)
+            IQueryable<Member> memberQuery = _context.Database.IsSqlServer()
+                ? _context.Members.FromSqlRaw(
+                    "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}", accountId)
+                : _context.Members.Where(candidate => candidate.AccountId == accountId);
+            Member? member = await memberQuery
                 .Include(m => m.Account)
                 .ThenInclude(a => a.Role)
                 .FirstOrDefaultAsync();
@@ -92,8 +99,15 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 return (RegisterSubscriptionResult.MemberLocked, null);
             }
 
+            if (!(await _membershipTermsService.GetMemberStatusAsync(accountId)).Accepted)
+            {
+                return (RegisterSubscriptionResult.TermsAcceptanceRequired, null);
+            }
+
             int packageId = request.PackageId.Value;
             MembershipPackage? package = await _context.MembershipPackages
+                .Include(candidate => candidate.MembershipPackageSports)
+                    .ThenInclude(item => item.Discipline)
                 .FirstOrDefaultAsync(p => p.Id == packageId);
 
             if (package is null)
@@ -141,8 +155,9 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
 
+            SubscriptionOrderQuote quote = ResolveSubscriptionOrderQuote(latestConfirmed, package, today);
             (string kind, DateOnly startDate, decimal payableAmount) =
-                ResolveSubscriptionOrderQuote(latestConfirmed, package, today);
+                (quote.Kind, quote.StartDate, quote.Amount);
 
             DateOnly endDate = startDate.AddMonths(package.DurationMonths).AddDays(-1);
 
@@ -158,6 +173,13 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 PackagePrice = package.Price,
                 DurationMonths = package.DurationMonths,
                 Benefits = JsonSerializer.Serialize(Services.Utils.MembershipBenefits.Read(package.Benefits)),
+                HasDisciplineRestrictions = package.MembershipPackageSports.Count > 0,
+                SubscriptionDisciplines = package.MembershipPackageSports.Select(item =>
+                    new MemberSubscriptionDiscipline
+                    {
+                        DisciplineId = item.DisciplineId,
+                        DisciplineName = item.Discipline.Name
+                    }).ToList(),
                 StartDate = startDate,
                 EndDate = endDate,
                 Kind = kind,
@@ -437,10 +459,7 @@ public class MemberSubscriptionService : IMemberSubscriptionService
             return (CounterRegisterResult.InvalidPaymentMethod, null, null);
         }
 
-        string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
-            ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured.");
-        TimeZoneInfo vnTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-        DateOnly today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vnTimeZone));
+        DateOnly today = GetBusinessDate();
 
         await using IDbContextTransaction transaction =
             await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
@@ -476,10 +495,11 @@ public class MemberSubscriptionService : IMemberSubscriptionService
 
             string? staffFullName = staff.Receptionist?.FullName ?? staff.CenterManager?.FullName;
 
-            Member? member = await _context.Members
-                .FromSqlRaw(
-                    "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}",
-                    request.MemberAccountId)
+            IQueryable<Member> memberQuery = _context.Database.IsSqlServer()
+                ? _context.Members.FromSqlRaw(
+                    "SELECT * FROM [dbo].[Member] WITH (UPDLOCK, HOLDLOCK) WHERE [AccountId] = {0}", request.MemberAccountId)
+                : _context.Members.Where(candidate => candidate.AccountId == request.MemberAccountId);
+            Member? member = await memberQuery
                 .Include(m => m.Account)
                 .ThenInclude(a => a.Role)
                 .FirstOrDefaultAsync();
@@ -499,8 +519,15 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 return (CounterRegisterResult.MemberLocked, null, null);
             }
 
+            if (!(await _membershipTermsService.GetMemberStatusAsync(request.MemberAccountId)).Accepted)
+            {
+                return (CounterRegisterResult.TermsAcceptanceRequired, null, null);
+            }
+
             int packageId = request.PackageId.Value;
             MembershipPackage? package = await _context.MembershipPackages
+                .Include(candidate => candidate.MembershipPackageSports)
+                    .ThenInclude(item => item.Discipline)
                 .FirstOrDefaultAsync(p => p.Id == packageId);
 
             if (package is null)
@@ -564,8 +591,9 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
 
+            SubscriptionOrderQuote quote = ResolveSubscriptionOrderQuote(latestConfirmed, package, today);
             (string kind, DateOnly startDate, decimal payableAmount) =
-                ResolveSubscriptionOrderQuote(latestConfirmed, package, today);
+                (quote.Kind, quote.StartDate, quote.Amount);
 
             DateOnly endDate = startDate.AddMonths(package.DurationMonths).AddDays(-1);
 
@@ -581,6 +609,13 @@ public class MemberSubscriptionService : IMemberSubscriptionService
                 PackagePrice = package.Price,
                 DurationMonths = package.DurationMonths,
                 Benefits = JsonSerializer.Serialize(Services.Utils.MembershipBenefits.Read(package.Benefits)),
+                HasDisciplineRestrictions = package.MembershipPackageSports.Count > 0,
+                SubscriptionDisciplines = package.MembershipPackageSports.Select(item =>
+                    new MemberSubscriptionDiscipline
+                    {
+                        DisciplineId = item.DisciplineId,
+                        DisciplineName = item.Discipline.Name
+                    }).ToList(),
                 StartDate = startDate,
                 EndDate = endDate,
                 Kind = kind,
@@ -702,39 +737,39 @@ public class MemberSubscriptionService : IMemberSubscriptionService
         }
     }
 
-    private static (string Kind, DateOnly StartDate, decimal PayableAmount) ResolveSubscriptionOrderQuote(
+    public static SubscriptionOrderQuote ResolveSubscriptionOrderQuote(
         MemberSubscription? latestConfirmed,
         MembershipPackage package,
         DateOnly today)
     {
         if (latestConfirmed is null)
         {
-            return ("REGISTER", today, package.Price);
+            return new SubscriptionOrderQuote("REGISTER", today, package.Price);
         }
 
-        if (latestConfirmed.StartDate <= today &&
-            latestConfirmed.EndDate >= today &&
-            package.Price > latestConfirmed.PackagePrice)
+        bool samePackage = latestConfirmed.PackageId == package.Id;
+        if (latestConfirmed.EndDate < today)
         {
-            int totalDays = Math.Max(1, latestConfirmed.EndDate.DayNumber - latestConfirmed.StartDate.DayNumber + 1);
-            int remainingDays = Math.Max(0, latestConfirmed.EndDate.DayNumber - today.DayNumber + 1);
-            decimal credit = Math.Round(
-                latestConfirmed.PackagePrice * remainingDays / totalDays,
-                0,
-                MidpointRounding.AwayFromZero);
-            decimal payableAmount = Math.Max(0m, package.Price - credit);
-            return ("UPGRADE", today, payableAmount);
+            return new SubscriptionOrderQuote(samePackage ? "RENEW" : "REGISTER", today, package.Price);
         }
 
-        if (latestConfirmed.EndDate >= today && package.Price < latestConfirmed.PackagePrice)
-        {
-            return ("DOWNGRADE", latestConfirmed.EndDate.AddDays(1), package.Price);
-        }
+        string kind = samePackage
+            ? "RENEW"
+            : package.Price > latestConfirmed.PackagePrice
+                ? "UPGRADE"
+                : package.Price < latestConfirmed.PackagePrice
+                    ? "DOWNGRADE"
+                    : "CHANGE";
+        return new SubscriptionOrderQuote(kind, latestConfirmed.EndDate.AddDays(1), package.Price);
+    }
 
-        DateOnly renewStart = latestConfirmed.EndDate >= today
-            ? latestConfirmed.EndDate.AddDays(1)
-            : today;
-        return ("RENEW", renewStart, package.Price);
+    private DateOnly GetBusinessDate()
+    {
+        string timeZoneId = _configuration["BusinessSettings:TimeZoneId"]
+            ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured.");
+        TimeZoneInfo businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        DateTime local = TimeZoneInfo.ConvertTimeFromUtc(_timeProvider.GetUtcNow().UtcDateTime, businessTimeZone);
+        return DateOnly.FromDateTime(local);
     }
 
     private static (string? FullName, string? Email, string? Phone) NormalizeCounterMember(

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
 using APIViewModel.MemberSubscription;
+using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -62,6 +63,8 @@ public class MemberSubscriptionController : ControllerBase
                 return Conflict("Gói tập hiện tại của bạn đang tạm ngưng (bảo lưu). Vui lòng liên hệ quầy lễ tân mở lại gói trước khi gia hạn hoặc mua gói mới.");
             case RegisterSubscriptionResult.UpcomingSubscriptionExists:
                 return Conflict("Bạn đã có sẵn một gói tập nối tiếp đang chờ kích hoạt trong tương lai, không thể mua chồng thêm gói mới.");
+            case RegisterSubscriptionResult.TermsAcceptanceRequired:
+                return TermsAcceptanceRequired();
 
             case RegisterSubscriptionResult.ConcurrencyConflict:
                 return Conflict("Dữ liệu vừa được thay đổi bởi giao dịch khác. Vui lòng thử lại.");
@@ -123,6 +126,8 @@ public class MemberSubscriptionController : ControllerBase
                 return Conflict("Gói tập hiện tại của hội viên đang tạm ngưng (bảo lưu). Vui lòng kích hoạt mở lại gói trước khi gia hạn.");
             case CounterRegisterResult.UpcomingSubscriptionExists:
                 return Conflict("Hội viên đã có sẵn một gói tập nối tiếp đang chờ bắt đầu, không thể gia hạn chồng thêm kỳ mới.");
+            case CounterRegisterResult.TermsAcceptanceRequired:
+                return TermsAcceptanceRequired();
 
             case CounterRegisterResult.InvoiceNumberCollision:
                 return Conflict("Xung đột mã hóa đơn khi xử lý đồng thời. Vui lòng thử lại.");
@@ -133,5 +138,18 @@ public class MemberSubscriptionController : ControllerBase
             default:
                 return StatusCode(StatusCodes.Status500InternalServerError);
         }
+    }
+
+    private ObjectResult TermsAcceptanceRequired()
+    {
+        return StatusCode(StatusCodes.Status409Conflict, new ApiErrorResponseAPIViewModel
+        {
+            Error = new ApiErrorAPIViewModel
+            {
+                Code = "TERMS_ACCEPTANCE_REQUIRED",
+                Message = "Học viên phải tự đăng nhập, đọc và chấp nhận điều khoản hiện hành trước khi đăng ký gói."
+            },
+            TraceId = HttpContext.TraceIdentifier
+        });
     }
 }
