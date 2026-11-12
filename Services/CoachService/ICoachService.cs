@@ -55,6 +55,8 @@ public interface ICoachService
 
     Task<CoachDetailAPIViewModel?> GetCoachByIdAsync(string accountId);
 
+    Task<CoachPublicProfileAPIViewModel?> GetPublicProfileAsync(string accountId);
+
     Task<(CreateCoachResult Result, CoachDetailAPIViewModel? Data)> CreateCoachAsync(
         string actorAccountId,
         CreateManagedCoachAPIViewModel request);

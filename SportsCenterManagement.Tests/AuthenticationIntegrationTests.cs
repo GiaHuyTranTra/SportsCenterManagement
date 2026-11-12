@@ -353,7 +353,7 @@ public partial class AuthenticationIntegrationTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private static HttpClient CreateAuthenticatedClient(WebApplicationFactory<Program> factory, string token)
+    internal static HttpClient CreateAuthenticatedClient(WebApplicationFactory<Program> factory, string token)
     {
         HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -363,7 +363,7 @@ public partial class AuthenticationIntegrationTests
         return client;
     }
 
-    private static string CreateToken(
+    internal static string CreateToken(
         string accountId,
         string email,
         string role,
@@ -391,7 +391,7 @@ public partial class AuthenticationIntegrationTests
         return new JwtSecurityTokenHandler().WriteToken(jwt);
     }
 
-    private sealed class AuthenticationWebApplicationFactory : WebApplicationFactory<Program>
+    internal sealed class AuthenticationWebApplicationFactory : WebApplicationFactory<Program>
     {
         private readonly string _databaseName = "AuthenticationIntegrationTests-" + Guid.NewGuid();
 

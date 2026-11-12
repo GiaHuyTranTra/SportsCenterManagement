@@ -104,6 +104,42 @@ public class CoachService : ICoachService
         return coach is null ? null : MapDetail(coach);
     }
 
+    public async Task<CoachPublicProfileAPIViewModel?> GetPublicProfileAsync(string accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+        {
+            return null;
+        }
+
+        Coach? coach = await BuildCoachQuery(tracking: false)
+            .FirstOrDefaultAsync(item =>
+                item.AccountId == accountId &&
+                item.Account.Role.Name == "Coach" &&
+                item.Account.Status == "Active" &&
+                item.Account.DeletedAt == null);
+        if (coach is null)
+        {
+            return null;
+        }
+
+        return new CoachPublicProfileAPIViewModel
+        {
+            AccountId = coach.AccountId,
+            FullName = coach.FullName,
+            WorkSchedule = coach.WorkSchedule,
+            Disciplines = coach.CoachDisciplines
+                .Where(link => link.Discipline.IsActive)
+                .OrderBy(link => link.Discipline.Name)
+                .ThenBy(link => link.DisciplineId)
+                .Select(link => new CoachPublicDisciplineAPIViewModel
+                {
+                    DisciplineId = link.DisciplineId,
+                    DisciplineName = link.Discipline.Name
+                })
+                .ToList()
+        };
+    }
+
     public async Task<(CreateCoachResult Result, CoachDetailAPIViewModel? Data)> CreateCoachAsync(
         string actorAccountId,
         CreateManagedCoachAPIViewModel request)
