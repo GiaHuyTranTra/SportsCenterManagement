@@ -282,7 +282,7 @@ public class MemberSubscriptionServiceTests
     }
 
     [Fact]
-    public async Task PayInvoice_ExpiredUpgradeQuote_IsRejectedWithQuoteExpired()
+    public async Task PayInvoice_UpgradeWithoutPriorScheduledPeriod_IsRejected()
     {
         await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
         await fixture.CreatePendingOrderAsync();
@@ -298,7 +298,7 @@ public class MemberSubscriptionServiceTests
                 PaymentMethod = "CASH", Amount = invoice.Amount, ConfirmReceivedCash = true
             });
 
-        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.QuoteExpired, result);
+        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.InvalidSubscriptionState, result);
         Assert.Null(receipt);
     }
 

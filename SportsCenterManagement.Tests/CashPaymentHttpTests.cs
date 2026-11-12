@@ -47,7 +47,7 @@ public partial class AuthenticationIntegrationTests
             MemberSubscription subscription = new MemberSubscription { MemberId = "account-1", Package = package,
                 PackageName = package.Name, PackagePrice = package.Price, Benefits = "[]", DurationMonths = 1,
                 Kind = "REGISTER", Status = "PENDING_PAYMENT", CreatedAt = DateTime.UtcNow,
-                StartDate = DateOnly.FromDateTime(DateTime.UtcNow), EndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(1) };
+                StartDate = DateOnly.FromDateTime(DateTime.UtcNow), EndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(1).AddDays(-1) };
             MembershipInvoice invoice = new MembershipInvoice { InvoiceNumber = "HTTP-CASH-" + Guid.NewGuid().ToString("N"),
                 MemberId = "account-1", Subscription = subscription, Amount = 500000m, PaymentMethod = "CASH",
                 Status = "PENDING_PAYMENT", CreatedAt = DateTime.UtcNow, CreatedBy = actor };
