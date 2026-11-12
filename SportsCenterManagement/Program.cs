@@ -16,6 +16,7 @@ using Services.ClassReportService;
 using Services.ScheduleQueryService;
 using Services.AccessTokenService;
 using Services.AuditLogService;
+using Services.HomeworkAssignmentService;
 using Services.AuthService;
 using Services.CoachService;
 using Services.DisciplineService;
@@ -228,6 +229,7 @@ public class Program
             containerBuilder.RegisterType<ClassReportService>().As<IClassReportService>();
             containerBuilder.RegisterType<ScheduleQueryService>().As<IScheduleQueryService>();
             containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
+            containerBuilder.RegisterType<HomeworkAssignmentService>().As<IHomeworkAssignmentService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
             containerBuilder.RegisterType<CoachService>().As<ICoachService>();
             containerBuilder.RegisterType<DisciplineService>().As<IDisciplineService>();
