@@ -39,6 +39,10 @@ public partial class SportsCenterManagementContext : DbContext
 
     public virtual DbSet<MemberSubscription> MemberSubscriptions { get; set; }
 
+    public virtual DbSet<MemberSubscriptionDiscipline> MemberSubscriptionDisciplines { get; set; }
+
+    public virtual DbSet<MembershipTermAcceptance> MembershipTermAcceptances { get; set; }
+
     public virtual DbSet<MembershipInvoice> MembershipInvoices { get; set; }
 
     public virtual DbSet<PasswordChangeOtp> PasswordChangeOtps { get; set; }
@@ -323,6 +327,38 @@ public partial class SportsCenterManagementContext : DbContext
                 .HasForeignKey(d => d.PackageId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MemberSubscription_MembershipPackage");
+        });
+
+        modelBuilder.Entity<MemberSubscriptionDiscipline>(entity =>
+        {
+            entity.HasKey(item => new { item.SubscriptionId, item.DisciplineId });
+            entity.ToTable("MemberSubscriptionDiscipline");
+            entity.Property(item => item.DisciplineName).HasMaxLength(100);
+            entity.HasOne(item => item.Subscription)
+                .WithMany(item => item.SubscriptionDisciplines)
+                .HasForeignKey(item => item.SubscriptionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_MemberSubscriptionDiscipline_Subscription");
+        });
+
+        modelBuilder.Entity<MembershipTermAcceptance>(entity =>
+        {
+            entity.ToTable("MembershipTermAcceptance");
+            entity.HasKey(item => item.Id);
+            entity.HasIndex(item => new { item.MemberId, item.TermsVersion },
+                    "UQ_MembershipTermAcceptance_Member_Version")
+                .IsUnique();
+            entity.Property(item => item.MemberId).HasMaxLength(400).IsUnicode(false);
+            entity.Property(item => item.TermsVersion).HasMaxLength(80).IsUnicode(false);
+            entity.Property(item => item.ContentHash).HasMaxLength(64).IsUnicode(false);
+            entity.Property(item => item.AcceptanceChannel).HasMaxLength(30).IsUnicode(false);
+            entity.Property(item => item.AcceptedAtUtc)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_MembershipTermAcceptance_AcceptedAtUtc");
+            entity.HasOne(item => item.Member)
+                .WithMany()
+                .HasForeignKey(item => item.MemberId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_MembershipTermAcceptance_Member");
         });
 
         modelBuilder.Entity<MembershipInvoice>(entity =>

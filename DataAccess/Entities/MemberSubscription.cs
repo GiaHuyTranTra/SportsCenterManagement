@@ -19,6 +19,8 @@ public partial class MemberSubscription
 
     public string Benefits { get; set; } = null!;
 
+    public bool HasDisciplineRestrictions { get; set; }
+
     public DateOnly StartDate { get; set; }
 
     public DateOnly EndDate { get; set; }
@@ -38,4 +40,7 @@ public partial class MemberSubscription
     public virtual MembershipInvoice? MembershipInvoice { get; set; }
 
     public virtual MembershipPackage Package { get; set; } = null!;
+
+    public virtual ICollection<MemberSubscriptionDiscipline> SubscriptionDisciplines { get; set; }
+        = new List<MemberSubscriptionDiscipline>();
 }
