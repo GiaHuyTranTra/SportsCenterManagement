@@ -1215,7 +1215,6 @@ public class TrainingAndOperationsController : ControllerBase
                 title = p.Title,
                 goal = p.Goal,
                 exercises = ParseExercises(p.ExercisesJson),
-                homework = p.Homework,
                 startDate = p.StartDate.ToString("yyyy-MM-dd"),
                 endDate = p.EndDate.ToString("yyyy-MM-dd"),
                 createdAt = DateTime.SpecifyKind(p.CreatedAt, DateTimeKind.Utc).ToString("O")
@@ -1233,7 +1232,6 @@ public class TrainingAndOperationsController : ControllerBase
                 progressRating = r.ProgressRating,
                 resultSummary = r.ResultSummary,
                 coachFeedback = r.CoachFeedback,
-                homeworkAssigned = r.HomeworkAssigned,
                 createdAt = DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc).ToString("O")
             })
         });
@@ -1389,7 +1387,6 @@ public class TrainingAndOperationsController : ControllerBase
             Title = title,
             Goal = goal,
             ExercisesJson = JsonSerializer.Serialize(input.Exercises),
-            Homework = string.IsNullOrWhiteSpace(input.Homework) ? null : input.Homework.Trim(),
             StartDate = startDate,
             EndDate = endDate,
             CreatedAt = DateTime.UtcNow
@@ -1425,8 +1422,7 @@ public class TrainingAndOperationsController : ControllerBase
                 RecipientId = recipientId,
                 Type = "TRAINING_PLAN_CREATED",
                 Title = $"Kế hoạch tập luyện mới: {plan.Title}",
-                Body = $"HLV đã giao kế hoạch tập luyện ({plan.StartDate:dd/MM/yyyy} – {plan.EndDate:dd/MM/yyyy}). Mục tiêu: {plan.Goal}."
-                    + (!string.IsNullOrWhiteSpace(plan.Homework) ? $" Bài tập về nhà: {plan.Homework}" : string.Empty),
+                Body = $"HLV đã giao kế hoạch tập luyện ({plan.StartDate:dd/MM/yyyy} – {plan.EndDate:dd/MM/yyyy}). Mục tiêu: {plan.Goal}.",
                 EntityType = "TrainingPlan",
                 EntityId = plan.Id.ToString(),
                 EventAt = DateTime.UtcNow,
@@ -1605,7 +1601,6 @@ public class TrainingAndOperationsController : ControllerBase
                 ProgressRating = rating,
                 ResultSummary = resultSummary,
                 CoachFeedback = coachFeedback,
-                HomeworkAssigned = string.IsNullOrWhiteSpace(input.HomeworkAssigned) ? null : input.HomeworkAssigned.Trim(),
                 CreatedAt = DateTime.UtcNow
             };
             _db.TrainingResults.Add(result);
@@ -1620,7 +1615,6 @@ public class TrainingAndOperationsController : ControllerBase
             result.ProgressRating = rating;
             result.ResultSummary = resultSummary;
             result.CoachFeedback = coachFeedback;
-            result.HomeworkAssigned = string.IsNullOrWhiteSpace(input.HomeworkAssigned) ? null : input.HomeworkAssigned.Trim();
             result.CreatedAt = DateTime.UtcNow;
         }
 
@@ -1644,8 +1638,7 @@ public class TrainingAndOperationsController : ControllerBase
             RecipientId = memberId,
             Type = "TRAINING_RESULT_RECORDED",
             Title = $"Đánh giá buổi tập ngày {recordedDate:dd/MM/yyyy}: {ratingLabel} ({input.CompletionRate}%)",
-            Body = $"Nhận xét từ HLV: {coachFeedback}"
-                + (!string.IsNullOrWhiteSpace(result.HomeworkAssigned) ? $" · Bài tập về nhà: {result.HomeworkAssigned}" : string.Empty),
+            Body = $"Nhận xét từ HLV: {coachFeedback}",
             EntityType = "TrainingResult",
             EntityId = memberId,
             EventAt = DateTime.UtcNow,
@@ -1659,81 +1652,17 @@ public class TrainingAndOperationsController : ControllerBase
 
     [HttpPost("coach/homework-notice")]
     [Authorize(Roles = "Coach,CenterManager")]
-    public async Task<IActionResult> SendCoachHomeworkOrNoticeAsync([FromBody] SendCoachNoticeRequest input)
+    public IActionResult SendCoachHomeworkOrNoticeAsync()
     {
-        string title = (input.Title ?? string.Empty).Trim();
-        string body = (input.Body ?? string.Empty).Trim();
-        if (title.Length < 4 || body.Length < 6)
+        return StatusCode(StatusCodes.Status410Gone, new
         {
-            return BadRequest("Tiêu đề (tối thiểu 4 ký tự) và nội dung thông báo/bài tập (tối thiểu 6 ký tự) là bắt buộc.");
-        }
-
-        List<string> recipients = new();
-        if (!string.IsNullOrWhiteSpace(input.MemberId))
-        {
-            string targetMemberId = input.MemberId.Trim();
-            var (_, errorMsg, isForbidden) = await ValidateMemberAndCoachScopeAsync(
-                targetMemberId,
-                checkCoachScope: true);
-            if (isForbidden)
+            error = new
             {
-                return Forbid();
-            }
-            if (errorMsg is not null)
-            {
-                return BadRequest(errorMsg);
-            }
-            recipients.Add(targetMemberId);
-        }
-        else if (input.ClassId.HasValue)
-        {
-            if (User.IsInRole("Coach") && !User.IsInRole("CenterManager"))
-            {
-                bool teachesClass = await _db.ClassSessions
-                    .AnyAsync(s => s.ClassId == input.ClassId.Value && s.CoachId == CallerId);
-                if (!teachesClass)
-                {
-                    return BadRequest("Bạn chỉ được gửi bài tập hoặc thông báo cho các lớp mình phụ trách giảng dạy.");
-                }
-            }
-
-            recipients = await _db.ClassRegistrations
-                .Where(r => r.Session.ClassId == input.ClassId.Value && r.Status == "BOOKED")
-                .Select(r => r.MemberId)
-                .Distinct()
-                .ToListAsync();
-        }
-
-        if (recipients.Count == 0)
-        {
-            return BadRequest("Lớp học hoặc đối tượng đã chọn hiện chưa có học viên đăng ký (BOOKED) để nhận thông báo.");
-        }
-
-        DateTime now = DateTime.UtcNow;
-        foreach (string recipientId in recipients)
-        {
-            _db.Notifications.Add(new Notification
-            {
-                RecipientId = recipientId,
-                Type = "COACH_HOMEWORK_NOTICE",
-                Title = title,
-                Body = body,
-                EntityType = "CoachNotice",
-                EntityId = CallerId,
-                EventAt = now,
-                CreatedAt = now,
-                IsRead = false
-            });
-        }
-
-        AddAuditLog(
-            "SEND_HOMEWORK_NOTICE",
-            "CoachNotice",
-            CallerId,
-            $"Gửi bài tập về nhà / thông báo \"{title}\" tới {recipients.Count} học viên.");
-
-        await _db.SaveChangesAsync();
-        return Ok(new { sentCount = recipients.Count });
+                code = "LEGACY_HOMEWORK_ROUTE_GONE",
+                message = "Hãy sử dụng API bài tập có cấu trúc tại /api/Homework."
+            },
+            traceId = HttpContext.TraceIdentifier
+        });
     }
 
     [HttpGet("member/workspace")]
@@ -1840,7 +1769,6 @@ public class TrainingAndOperationsController : ControllerBase
                 title = p.Title,
                 goal = p.Goal,
                 exercises = ParseExercises(p.ExercisesJson),
-                homework = p.Homework,
                 startDate = p.StartDate.ToString("yyyy-MM-dd"),
                 endDate = p.EndDate.ToString("yyyy-MM-dd"),
                 createdAt = DateTime.SpecifyKind(p.CreatedAt, DateTimeKind.Utc).ToString("O")
@@ -1855,7 +1783,6 @@ public class TrainingAndOperationsController : ControllerBase
                 progressRating = r.ProgressRating,
                 resultSummary = r.ResultSummary,
                 coachFeedback = r.CoachFeedback,
-                homeworkAssigned = r.HomeworkAssigned,
                 createdAt = DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc).ToString("O")
             }),
             classAttendanceHistory = classAttendances.Select(a =>
@@ -2056,7 +1983,6 @@ public class CreateTrainingPlanRequest
     public string Title { get; set; } = string.Empty;
     public string Goal { get; set; } = string.Empty;
     public List<TrainingExerciseItemDto> Exercises { get; set; } = new();
-    public string? Homework { get; set; }
     public string StartDate { get; set; } = string.Empty;
     public string EndDate { get; set; } = string.Empty;
 }
@@ -2072,15 +1998,6 @@ public class CreateTrainingResultRequest
     public string ProgressRating { get; set; } = "ON_TRACK";
     public string ResultSummary { get; set; } = string.Empty;
     public string CoachFeedback { get; set; } = string.Empty;
-    public string? HomeworkAssigned { get; set; }
-}
-
-public class SendCoachNoticeRequest
-{
-    public string? MemberId { get; set; }
-    public int? ClassId { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string Body { get; set; } = string.Empty;
 }
 
 public class UpdateRolePermissionRequest
