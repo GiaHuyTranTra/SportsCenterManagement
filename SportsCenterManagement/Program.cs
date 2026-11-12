@@ -25,6 +25,7 @@ using Services.MemberService;
 using Services.MembershipPackageService;
 using Services.MembershipInvoiceService;
 using Services.MemberSubscriptionService;
+using Services.MembershipTermsService;
 using Services.PasswordHashService;
 using Services.ReceptionistService;
 using Services.RoomService;
@@ -237,6 +238,7 @@ public class Program
             containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
             containerBuilder.RegisterType<MembershipInvoiceService>().As<IMembershipInvoiceService>();
             containerBuilder.RegisterType<MemberSubscriptionService>().As<IMemberSubscriptionService>();
+            containerBuilder.RegisterType<MembershipTermsService>().As<IMembershipTermsService>();
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
             containerBuilder.RegisterType<ReceptionistService>().As<IReceptionistService>();
