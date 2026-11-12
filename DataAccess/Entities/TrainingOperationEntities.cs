@@ -85,6 +85,20 @@ public class TrainingResult
     public DateTime CreatedAt { get; set; }
 }
 
+public class HomeworkAssignment
+{
+    public int Id { get; set; }
+    public string CoachId { get; set; } = null!;
+    public string MemberId { get; set; } = null!;
+    public int? ClassId { get; set; }
+    public int? SessionId { get; set; }
+    public string Title { get; set; } = null!;
+    public string Instructions { get; set; } = null!;
+    public string SourceType { get; set; } = null!;
+    public DateTime AssignedAtUtc { get; set; }
+    public string? LegacySourceKey { get; set; }
+}
+
 public class RolePermissionConfig
 {
     public string FeatureKey { get; set; } = null!;

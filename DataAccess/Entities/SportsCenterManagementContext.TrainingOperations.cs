@@ -10,6 +10,7 @@ public partial class SportsCenterManagementContext
     public virtual DbSet<MemberTrainingProfile> MemberTrainingProfiles { get; set; }
     public virtual DbSet<TrainingPlan> TrainingPlans { get; set; }
     public virtual DbSet<TrainingResult> TrainingResults { get; set; }
+    public virtual DbSet<HomeworkAssignment> HomeworkAssignments { get; set; }
     public virtual DbSet<RolePermissionConfig> RolePermissionConfigs { get; set; }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
@@ -90,6 +91,27 @@ public partial class SportsCenterManagementContext
             entity.Property(e => e.CoachFeedback).HasMaxLength(1000);
             entity.Property(e => e.HomeworkAssigned).HasMaxLength(500);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+        });
+
+        modelBuilder.Entity<HomeworkAssignment>(entity =>
+        {
+            entity.ToTable("HomeworkAssignment", table =>
+                table.HasCheckConstraint(
+                    "CK_HomeworkAssignment_SourceType",
+                    "[SourceType] IN ('DIRECT', 'CLASS', 'SESSION')"));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CoachId).HasMaxLength(400).IsUnicode(false);
+            entity.Property(e => e.MemberId).HasMaxLength(400).IsUnicode(false);
+            entity.Property(e => e.Title).HasMaxLength(200);
+            entity.Property(e => e.Instructions).HasMaxLength(2000);
+            entity.Property(e => e.SourceType).HasMaxLength(20).IsUnicode(false);
+            entity.Property(e => e.AssignedAtUtc).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.LegacySourceKey).HasMaxLength(100).IsUnicode(false);
+            entity.HasIndex(e => new { e.MemberId, e.AssignedAtUtc });
+            entity.HasIndex(e => new { e.CoachId, e.AssignedAtUtc });
+            entity.HasIndex(e => e.LegacySourceKey)
+                .IsUnique()
+                .HasFilter("[LegacySourceKey] IS NOT NULL");
         });
 
         modelBuilder.Entity<RolePermissionConfig>(entity =>
