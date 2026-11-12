@@ -394,7 +394,8 @@ public class MemberSubscriptionServiceTests
         MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(i => i.Subscription).SingleAsync();
         DateOnly businessToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(
             DateTime.UtcNow, "SE Asia Standard Time"));
-        DateOnly priorEnd = businessToday.AddDays(-45);
+        DateOnly priorStart = businessToday.AddDays(-75);
+        DateOnly priorEnd = priorStart.AddMonths(1).AddDays(-1);
         fixture.Context.MemberSubscriptions.Add(new MemberSubscription
         {
             MemberId = invoice.MemberId,
@@ -403,13 +404,13 @@ public class MemberSubscriptionServiceTests
             PackagePrice = fixture.Package.Price,
             DurationMonths = fixture.Package.DurationMonths,
             Benefits = fixture.Package.Benefits,
-            StartDate = priorEnd.AddMonths(-1).AddDays(1),
+            StartDate = priorStart,
             EndDate = priorEnd,
             Kind = "REGISTER",
             Status = "CONFIRMED",
             CreatedAt = DateTime.UtcNow.AddDays(-90)
         });
-        invoice.CreatedAt = businessToday.AddDays(-60).ToDateTime(new TimeOnly(12), DateTimeKind.Utc);
+        invoice.CreatedAt = priorEnd.AddDays(-15).ToDateTime(new TimeOnly(12), DateTimeKind.Utc);
         invoice.Subscription.Kind = "RENEW";
         invoice.Subscription.StartDate = priorEnd.AddDays(1);
         invoice.Subscription.EndDate = priorEnd.AddMonths(1);
