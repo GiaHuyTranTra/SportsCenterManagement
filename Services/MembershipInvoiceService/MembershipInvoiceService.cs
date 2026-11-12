@@ -284,8 +284,7 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 return (PayInvoiceResult.InvalidSubscriptionState, null);
             }
 
-            bool coverageWasPlannedFromOrderDate = latestConfirmed is null || latestConfirmed.EndDate < orderDate;
-            if (coverageWasPlannedFromOrderDate && expectedStart < businessToday)
+            if (expectedStart < businessToday)
             {
                 invoice.Subscription.StartDate = businessToday;
                 invoice.Subscription.EndDate = businessToday

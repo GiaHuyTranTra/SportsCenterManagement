@@ -362,8 +362,9 @@ public class MemberSubscriptionServiceTests
         await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
         await fixture.CreatePendingOrderAsync();
         MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(i => i.Subscription).SingleAsync();
-        DateOnly oldStart = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-40));
         invoice.CreatedAt = DateTime.UtcNow.AddDays(-40);
+        DateOnly oldStart = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(
+            DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), "SE Asia Standard Time"));
         invoice.Subscription.CreatedAt = invoice.CreatedAt;
         invoice.Subscription.StartDate = oldStart;
         invoice.Subscription.EndDate = oldStart.AddMonths(1).AddDays(-1);
@@ -383,6 +384,50 @@ public class MemberSubscriptionServiceTests
         Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.Success, result);
         Assert.Equal(businessToday, receipt!.StartDate);
         Assert.Equal(businessToday.AddMonths(1).AddDays(-1), receipt.EndDate);
+    }
+
+    [Fact]
+    public async Task PayInvoice_ScheduledPeriodThatElapsedBeforePayment_RebasesWithoutLosingPaidDays()
+    {
+        await using MemberSubscriptionServiceTestFixture fixture = await MemberSubscriptionServiceTestFixture.CreateAsync();
+        await fixture.CreatePendingOrderAsync();
+        MembershipInvoice invoice = await fixture.Context.MembershipInvoices.Include(i => i.Subscription).SingleAsync();
+        DateOnly businessToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(
+            DateTime.UtcNow, "SE Asia Standard Time"));
+        DateOnly priorEnd = businessToday.AddDays(-45);
+        fixture.Context.MemberSubscriptions.Add(new MemberSubscription
+        {
+            MemberId = invoice.MemberId,
+            PackageId = fixture.Package.Id,
+            PackageName = fixture.Package.Name,
+            PackagePrice = fixture.Package.Price,
+            DurationMonths = fixture.Package.DurationMonths,
+            Benefits = fixture.Package.Benefits,
+            StartDate = priorEnd.AddMonths(-1).AddDays(1),
+            EndDate = priorEnd,
+            Kind = "REGISTER",
+            Status = "CONFIRMED",
+            CreatedAt = DateTime.UtcNow.AddDays(-90)
+        });
+        invoice.CreatedAt = businessToday.AddDays(-60).ToDateTime(new TimeOnly(12), DateTimeKind.Utc);
+        invoice.Subscription.Kind = "RENEW";
+        invoice.Subscription.StartDate = priorEnd.AddDays(1);
+        invoice.Subscription.EndDate = priorEnd.AddMonths(1);
+        await fixture.Context.SaveChangesAsync();
+
+        Services.MembershipInvoiceService.MembershipInvoiceService service = CreateInvoiceService(fixture);
+        var (result, receipt) = await service.PayInvoiceAsync(
+            invoice.Id,
+            fixture.Receptionist.Id,
+            new APIViewModel.MembershipInvoice.PayMembershipInvoiceAPIViewModel
+            {
+                PaymentMethod = "CASH", Amount = invoice.Amount, ConfirmReceivedCash = true
+            });
+
+        Assert.Equal(Services.MembershipInvoiceService.PayInvoiceResult.Success, result);
+        Assert.Equal(businessToday, receipt!.StartDate);
+        Assert.Equal(businessToday.AddMonths(1).AddDays(-1), receipt.EndDate);
+        Assert.Equal("RENEW", receipt.Kind);
     }
 
     private static Services.MembershipInvoiceService.MembershipInvoiceService CreateInvoiceService(
