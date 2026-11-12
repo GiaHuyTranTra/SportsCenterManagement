@@ -64,19 +64,29 @@ public sealed class MembershipTermsService : IMembershipTermsService
             return AcceptMembershipTermsResult.MemberNotEligible;
         }
 
-        bool exists = await _context.MembershipTermAcceptances.AnyAsync(item =>
-            item.MemberId == memberId && item.TermsVersion == MembershipTermsCatalog.CurrentVersion);
-        if (!exists)
+        MembershipTermAcceptance acceptance = new()
         {
-            _context.MembershipTermAcceptances.Add(new MembershipTermAcceptance
-            {
-                MemberId = memberId,
-                TermsVersion = MembershipTermsCatalog.CurrentVersion,
-                ContentHash = MembershipTermsCatalog.CurrentHash,
-                AcceptanceChannel = "MEMBER_WEB",
-                AcceptedAtUtc = DateTime.UtcNow
-            });
+            MemberId = memberId,
+            TermsVersion = MembershipTermsCatalog.CurrentVersion,
+            ContentHash = MembershipTermsCatalog.CurrentHash,
+            AcceptanceChannel = "MEMBER_WEB",
+            AcceptedAtUtc = DateTime.UtcNow
+        };
+        _context.MembershipTermAcceptances.Add(acceptance);
+        try
+        {
             await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            _context.Entry(acceptance).State = EntityState.Detached;
+            bool committedByAnotherRequest = await _context.MembershipTermAcceptances
+                .AsNoTracking()
+                .AnyAsync(item =>
+                    item.MemberId == memberId &&
+                    item.TermsVersion == MembershipTermsCatalog.CurrentVersion &&
+                    item.ContentHash == MembershipTermsCatalog.CurrentHash);
+            if (!committedByAnotherRequest) throw;
         }
 
         return AcceptMembershipTermsResult.Success;

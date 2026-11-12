@@ -2,16 +2,30 @@ using APIViewModel.Homework;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Configuration;
 
 namespace Services.HomeworkAssignmentService;
 
 public sealed class HomeworkAssignmentService : IHomeworkAssignmentService
 {
     private readonly SportsCenterManagementContext _context;
+    private readonly TimeZoneInfo _businessTimeZone;
 
-    public HomeworkAssignmentService(SportsCenterManagementContext context)
+    public HomeworkAssignmentService(
+        SportsCenterManagementContext context,
+        IConfiguration? configuration = null)
     {
         _context = context;
+        string timeZoneId = configuration?["BusinessSettings:TimeZoneId"]
+            ?? "SE Asia Standard Time";
+        try
+        {
+            _businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            _businessTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        }
     }
 
     public async Task<(AssignHomeworkResult Result, IReadOnlyList<HomeworkAssignmentAPIViewModel> Items)> AssignAsync(
@@ -62,7 +76,7 @@ public sealed class HomeworkAssignmentService : IHomeworkAssignmentService
                     RecipientId = assignment.MemberId,
                     Type = "COACH_HOMEWORK_NOTICE",
                     Title = assignment.Title,
-                    Body = assignment.Instructions,
+                    Body = NotificationPreview(assignment.Instructions),
                     EntityType = "HomeworkAssignment",
                     EntityId = assignment.Id.ToString(),
                     EventAt = assignedAt,
@@ -178,7 +192,9 @@ public sealed class HomeworkAssignmentService : IHomeworkAssignmentService
                     && item.Status != "CANCELED");
             if (!ownsTarget) return (AssignHomeworkResult.TargetNotFoundOrForbidden, []);
 
-            DateTime today = DateTime.UtcNow.Date;
+            DateOnly businessToday = DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _businessTimeZone));
+            DateTime today = businessToday.ToDateTime(TimeOnly.MinValue);
             List<string> memberIds = await _context.ClassRegistrations.AsNoTracking()
                 .Where(item => item.Session.ClassId == classId
                     && item.Session.Status != "CANCELED"
@@ -255,9 +271,14 @@ public sealed class HomeworkAssignmentService : IHomeworkAssignmentService
             Title = item.Title,
             Instructions = item.Instructions,
             SourceType = item.SourceType,
-            AssignedAtUtc = item.AssignedAtUtc
+            AssignedAtUtc = DateTime.SpecifyKind(item.AssignedAtUtc, DateTimeKind.Utc)
         }).ToList();
     }
+
+    private static string NotificationPreview(string instructions) =>
+        instructions.Length <= 1000
+            ? instructions
+            : instructions[..997] + "...";
 
     private sealed record Recipient(string MemberId, int? ClassId, int? SessionId);
 }

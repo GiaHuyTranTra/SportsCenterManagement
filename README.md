@@ -10,7 +10,12 @@ Ngày tổng hợp: 15/10/2026. Dự án: Sports Center Management System.
 - Gia hạn, nâng, hạ hoặc đổi gói đều tính nguyên giá và bắt đầu từ ngày liền sau kỳ `CONFIRMED` gần nhất; không cắt ngắn hoặc thay đổi gói đang sử dụng giữa kỳ.
 - Quyền bộ môn được chụp vào `MemberSubscriptionDiscipline` lúc tạo đơn. Thay đổi danh mục gói về sau không làm mất quyền đã mua; `HasDisciplineRestrictions=false` nghĩa là không giới hạn bộ môn.
 
-Áp dụng schema bằng `Database/2026-11-12-membership-terms-scheduled-packages.sql`. Script có preflight và cố ý dừng nếu dữ liệu hiện tại có nhiều hơn một gói tương lai cho cùng học viên; phải xử lý dữ liệu tài chính đó có chủ đích, không xóa tự động. Sau khi cấu hình connection string và SMTP/JWT theo môi trường:
+Áp dụng hai script theo đúng thứ tự:
+
+1. `Database/2026-11-12-membership-terms-scheduled-packages.sql`
+2. `Database/2026-11-12-homework-assignment-history.sql`
+
+Các backfill có marker một lần trong `ScmsDataMigrationHistory`, nên chạy lại script không đọc lại danh mục gói hoặc danh sách lớp đã thay đổi. Script gói có preflight và cố ý dừng nếu dữ liệu hiện tại có nhiều hơn một gói tương lai cho cùng học viên; phải xử lý dữ liệu tài chính đó có chủ đích, không xóa tự động. Sau khi cấu hình connection string và SMTP/JWT theo môi trường:
 
 ```powershell
 dotnet restore

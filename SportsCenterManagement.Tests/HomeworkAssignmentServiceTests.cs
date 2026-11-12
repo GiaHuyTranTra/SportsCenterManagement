@@ -162,6 +162,24 @@ public sealed class HomeworkAssignmentServiceTests
         Assert.Empty(await context.AuditLogs.Where(item => item.Action == "ASSIGN_HOMEWORK").ToListAsync());
     }
 
+    [Fact]
+    public async Task LongInstructions_AreStoredInFullWhileNotificationFitsItsColumn()
+    {
+        await using SportsCenterManagementContext context = CreateInMemoryContext();
+        SeedPeople(context);
+        context.TrainingPlans.Add(Plan("coach-1", "member-1"));
+        await context.SaveChangesAsync();
+        HomeworkAssignmentService service = new(context);
+        CreateHomeworkAssignmentAPIViewModel request = Request("MEMBER", memberId: "member-1");
+        request.Instructions = new string('x', 2000);
+
+        var (result, items) = await service.AssignAsync("coach-1", request);
+
+        Assert.Equal(AssignHomeworkResult.Success, result);
+        Assert.Equal(2000, Assert.Single(items).Instructions.Length);
+        Assert.True(Assert.Single(context.Notifications).Body.Length <= 1000);
+    }
+
     private static CreateHomeworkAssignmentAPIViewModel Request(
         string targetType,
         string? memberId = null,

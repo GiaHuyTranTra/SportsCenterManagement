@@ -1,8 +1,21 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
+DECLARE @HomeworkTableAlreadyExisted bit =
+    CASE WHEN OBJECT_ID(N'dbo.HomeworkAssignment', N'U') IS NULL THEN 0 ELSE 1 END;
+DECLARE @BusinessToday date =
+    CONVERT(date, SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time');
+
 BEGIN TRY
     BEGIN TRANSACTION;
+
+    IF OBJECT_ID(N'dbo.ScmsDataMigrationHistory', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.ScmsDataMigrationHistory (
+            MigrationKey VARCHAR(150) NOT NULL CONSTRAINT PK_ScmsDataMigrationHistory PRIMARY KEY,
+            AppliedAtUtc DATETIME2 NOT NULL CONSTRAINT DF_ScmsDataMigrationHistory_AppliedAtUtc DEFAULT (SYSUTCDATETIME())
+        );
+    END;
 
     IF OBJECT_ID(N'dbo.HomeworkAssignment', N'U') IS NULL
     BEGIN
@@ -36,6 +49,16 @@ BEGIN TRY
             ON dbo.HomeworkAssignment(LegacySourceKey)
             WHERE LegacySourceKey IS NOT NULL;
 
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM dbo.ScmsDataMigrationHistory
+        WHERE MigrationKey = '2026-11-12-homework-legacy-backfill-v1'
+    )
+    BEGIN
+    -- An existing homework table means an earlier revision already ran the
+    -- one-time import. Do not reread mutable class rosters on deployment retry.
+    IF @HomeworkTableAlreadyExisted = 0
+    BEGIN
     INSERT INTO dbo.HomeworkAssignment
         (CoachId, MemberId, ClassId, SessionId, Title, Instructions, SourceType, AssignedAtUtc, LegacySourceKey)
     SELECT r.CoachId, r.MemberId, s.ClassId, r.SessionId,
@@ -72,7 +95,7 @@ BEGIN TRY
           AND registration.Status = 'BOOKED'
           AND registration.CanceledAt IS NULL
           AND session.Status <> 'CANCELED'
-          AND CONVERT(date, session.SessionDate) >= CONVERT(date, SYSUTCDATETIME())
+          AND CONVERT(date, session.SessionDate) >= @BusinessToday
     )
     INSERT INTO dbo.HomeworkAssignment
         (CoachId, MemberId, ClassId, SessionId, Title, Instructions, SourceType, AssignedAtUtc, LegacySourceKey)
@@ -84,6 +107,11 @@ BEGIN TRY
     WHERE NOT EXISTS (
         SELECT 1 FROM dbo.HomeworkAssignment h
         WHERE h.LegacySourceKey = CONCAT('PLAN:', recipient.PlanId, ':MEMBER:', recipient.MemberId));
+    END;
+
+    INSERT INTO dbo.ScmsDataMigrationHistory(MigrationKey)
+    VALUES ('2026-11-12-homework-legacy-backfill-v1');
+    END;
 
     COMMIT TRANSACTION;
 END TRY

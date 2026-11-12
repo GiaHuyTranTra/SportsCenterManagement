@@ -247,6 +247,9 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 .Where(s => s.MemberId == memberAccountId && s.Status == "CONFIRMED" && s.Id != invoice.Subscription.Id)
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
+            DateTime nowUtc = DateTime.UtcNow;
+            DateOnly businessToday = DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTimeFromUtc(nowUtc, vnTimeZone));
             DateOnly orderDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), vnTimeZone));
             DateOnly expectedStart;
@@ -281,7 +284,14 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 return (PayInvoiceResult.InvalidSubscriptionState, null);
             }
 
-            DateTime nowUtc = DateTime.UtcNow;
+            bool coverageWasPlannedFromOrderDate = latestConfirmed is null || latestConfirmed.EndDate < orderDate;
+            if (coverageWasPlannedFromOrderDate && expectedStart < businessToday)
+            {
+                invoice.Subscription.StartDate = businessToday;
+                invoice.Subscription.EndDate = businessToday
+                    .AddMonths(invoice.Subscription.DurationMonths)
+                    .AddDays(-1);
+            }
             invoice.Subscription.Status = "CONFIRMED";
 
             invoice.Status = "PAID";

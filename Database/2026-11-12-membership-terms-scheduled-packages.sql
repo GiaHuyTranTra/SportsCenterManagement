@@ -1,6 +1,9 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
+DECLARE @SnapshotTableAlreadyExisted bit =
+    CASE WHEN OBJECT_ID('dbo.MemberSubscriptionDiscipline', 'U') IS NULL THEN 0 ELSE 1 END;
+
 DECLARE @DuplicatePendingMembers nvarchar(max);
 SELECT @DuplicatePendingMembers = STRING_AGG(duplicates.MemberId, ', ')
 FROM
@@ -40,6 +43,28 @@ BEGIN
 END;
 
 BEGIN TRANSACTION;
+
+IF OBJECT_ID('dbo.ScmsDataMigrationHistory', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ScmsDataMigrationHistory
+    (
+        MigrationKey varchar(150) NOT NULL CONSTRAINT PK_ScmsDataMigrationHistory PRIMARY KEY,
+        AppliedAtUtc datetime2 NOT NULL CONSTRAINT DF_ScmsDataMigrationHistory_AppliedAtUtc DEFAULT (sysutcdatetime())
+    );
+END;
+
+IF EXISTS
+(
+    SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID('dbo.MemberSubscription')
+      AND name = 'CK_MemberSubscription_Kind'
+)
+BEGIN
+    ALTER TABLE dbo.MemberSubscription DROP CONSTRAINT CK_MemberSubscription_Kind;
+END;
+ALTER TABLE dbo.MemberSubscription WITH CHECK
+    ADD CONSTRAINT CK_MemberSubscription_Kind
+    CHECK (Kind IN ('REGISTER', 'RENEW', 'UPGRADE', 'DOWNGRADE', 'CHANGE'));
 
 IF COL_LENGTH('dbo.MemberSubscription', 'HasDisciplineRestrictions') IS NULL
 BEGIN
@@ -81,29 +106,47 @@ BEGIN
     );
 END;
 
-INSERT INTO dbo.MemberSubscriptionDiscipline (SubscriptionId, DisciplineId, DisciplineName)
-SELECT subscription.Id, packageSport.DisciplineId, discipline.Name
-FROM dbo.MemberSubscription AS subscription
-INNER JOIN dbo.MembershipPackageSport AS packageSport
-    ON packageSport.PackageId = subscription.PackageId
-INNER JOIN dbo.Discipline AS discipline
-    ON discipline.Id = packageSport.DisciplineId
-WHERE NOT EXISTS
+IF NOT EXISTS
 (
-    SELECT 1
-    FROM dbo.MemberSubscriptionDiscipline AS snapshot
-    WHERE snapshot.SubscriptionId = subscription.Id
-      AND snapshot.DisciplineId = packageSport.DisciplineId
-);
+    SELECT 1 FROM dbo.ScmsDataMigrationHistory
+    WHERE MigrationKey = '2026-11-12-membership-entitlement-snapshot-backfill-v1'
+)
+BEGIN
+    -- If the snapshot table already existed when this script started, an older
+    -- revision already performed the one-time import. Mark it complete without
+    -- rereading the mutable package catalog.
+    IF @SnapshotTableAlreadyExisted = 0
+    BEGIN
+        INSERT INTO dbo.MemberSubscriptionDiscipline (SubscriptionId, DisciplineId, DisciplineName)
+        SELECT subscription.Id, packageSport.DisciplineId, discipline.Name
+        FROM dbo.MemberSubscription AS subscription
+        INNER JOIN dbo.MembershipPackageSport AS packageSport
+            ON packageSport.PackageId = subscription.PackageId
+        INNER JOIN dbo.Discipline AS discipline
+            ON discipline.Id = packageSport.DisciplineId;
 
-UPDATE subscription
-SET HasDisciplineRestrictions = 1
-FROM dbo.MemberSubscription AS subscription
-WHERE EXISTS
+        UPDATE subscription
+        SET HasDisciplineRestrictions = 1
+        FROM dbo.MemberSubscription AS subscription
+        WHERE EXISTS
+        (
+            SELECT 1
+            FROM dbo.MemberSubscriptionDiscipline AS snapshot
+            WHERE snapshot.SubscriptionId = subscription.Id
+        );
+    END;
+
+    INSERT INTO dbo.ScmsDataMigrationHistory(MigrationKey)
+    VALUES ('2026-11-12-membership-entitlement-snapshot-backfill-v1');
+END;
+
+IF NOT EXISTS
 (
-    SELECT 1
-    FROM dbo.MemberSubscriptionDiscipline AS snapshot
-    WHERE snapshot.SubscriptionId = subscription.Id
-);
+    SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID('dbo.MemberSubscription')
+      AND name = 'CK_MemberSubscription_Kind'
+      AND definition LIKE '%CHANGE%'
+)
+    THROW 51003, 'MemberSubscription.Kind constraint does not allow CHANGE.', 1;
 
 COMMIT TRANSACTION;
