@@ -717,20 +717,17 @@ public class ClassRegistrationService : IClassRegistrationService
         DateTime today = localNow.Date;
         TimeSpan currentTime = localNow.TimeOfDay;
 
-        // Hủy lớp là bỏ cả khóa, nên hạn hủy tính theo giờ khai giảng của lớp
-        // chứ không theo buổi kế tiếp: lớp đã bắt đầu thì chỗ coi như đã dùng.
-        ClassSession? openingSession = await _context.ClassSessions.AsNoTracking()
-            .Where(item => item.ClassId == classId)
+        // Hủy lớp là bỏ cả khóa, nên hạn hủy tính theo buổi khai giảng chứ không
+        // theo buổi kế tiếp. "Khai giảng" là buổi đầu tiên CỦA HỘI VIÊN NÀY: người
+        // vào giữa khóa chưa học buổi nào thì vẫn hủy được trước buổi đầu của họ,
+        // còn người đã học ít nhất một buổi thì coi như đang học, không tự hủy.
+        ClassSession openingSession = registrations
+            .Select(item => item.Session)
+            .Where(item => item.Status != "CANCELED" && item.Status != "CANCELLED")
+            .DefaultIfEmpty(registrations.Select(item => item.Session).First())
             .OrderBy(item => item.SessionDate)
             .ThenBy(item => item.StartTime)
-            .FirstOrDefaultAsync();
-
-        if (openingSession is null)
-        {
-            throw new BusinessRuleException(
-                "CLASS_HAS_NO_VALID_SESSION",
-                "Lớp học chưa có buổi nào nên không thể hủy đăng ký.");
-        }
+            .First();
 
         DateTime classStart = openingSession.SessionDate.Date + openingSession.StartTime;
 

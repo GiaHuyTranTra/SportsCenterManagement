@@ -50,17 +50,66 @@ public partial class ClassRegistrationServiceTests
         }
     }
 
-    // Hủy lớp bám giờ khai giảng, không bám buổi kế tiếp: lớp đã mở thì dù còn
-    // buổi ở xa trong tương lai cũng không hủy được nữa.
+    // Hủy lớp bám buổi đầu tiên hội viên giữ chỗ, không bám buổi kế tiếp: đã học
+    // (hoặc sắp học trong 7 tiếng) buổi đầu thì dù còn buổi ở xa cũng không hủy.
     [Theory]
     [InlineData(10, true)]
     [InlineData(6, false)]
     [InlineData(-24, false)]
-    public async Task CancelClassRegistrationAsync_UsesClassOpeningTimeForDeadline(
+    public async Task CancelClassRegistrationAsync_UsesMemberOpeningTimeForDeadline(
         int hoursUntilClassOpens,
         bool canCancel)
     {
         await using SportsCenterManagementContext context = CreateContext();
+        ClassRegistration booking = await SeedClassWithOpeningSessionAsync(
+            context, hoursUntilClassOpens, memberBookedOpening: true);
+
+        ClassRegistrationService service = new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context));
+
+        if (canCancel)
+        {
+            await service.CancelClassRegistrationAsync("member-1", 1, "Bận việc", "member-1", false);
+            Assert.Equal("CANCELED", booking.Status);
+        }
+        else
+        {
+            BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
+                () => service.CancelClassRegistrationAsync("member-1", 1, null, "member-1", false));
+            Assert.Equal("REGISTRATION_CANCELLATION_TOO_LATE", exception.Code);
+            Assert.Equal("BOOKED", booking.Status);
+        }
+    }
+
+    // Hội viên vào giữa khóa (lớp đã khai giảng trước đó nhưng họ chưa học buổi
+    // nào) vẫn tự hủy được khi buổi đầu của họ còn hơn 7 tiếng.
+    [Theory]
+    [InlineData(-24 * 30)]
+    [InlineData(6)]
+    public async Task CancelClassRegistrationAsync_LateJoinerCanCancelBeforeOwnFirstSession(
+        int hoursUntilClassOpens)
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        ClassRegistration booking = await SeedClassWithOpeningSessionAsync(
+            context, hoursUntilClassOpens, memberBookedOpening: false);
+
+        ClassRegistrationService service = new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context));
+
+        await service.CancelClassRegistrationAsync("member-1", 1, "Bận việc", "member-1", false);
+        Assert.Equal("CANCELED", booking.Status);
+    }
+
+    /// <summary>
+    /// Lớp có buổi khai giảng (Id 2) lệch <paramref name="hoursUntilClassOpens"/> so
+    /// với hiện tại và một buổi sau đó 5 ngày (Id 1) mà hội viên giữ chỗ. Trả về
+    /// lượt giữ chỗ của buổi 5 ngày sau.
+    /// </summary>
+    private async Task<ClassRegistration> SeedClassWithOpeningSessionAsync(
+        SportsCenterManagementContext context,
+        int hoursUntilClassOpens,
+        bool memberBookedOpening)
+    {
         DateTime bookedSessionDate = DateTime.UtcNow.AddHours(7).AddDays(5).Date;
         await SeedValidMemberAndSessionAsync(context, bookedSessionDate, 10, 1);
 
@@ -91,22 +140,15 @@ public partial class ClassRegistrationServiceTests
             RegisteredAt = DateTime.UtcNow, RegisteredVia = "MEMBER", RegisteredBy = "member-1"
         };
         context.ClassRegistrations.Add(booking);
+        if (memberBookedOpening)
+        {
+            context.ClassRegistrations.Add(new ClassRegistration
+            {
+                Id = 72, SessionId = 2, MemberId = "member-1", Status = "BOOKED",
+                RegisteredAt = DateTime.UtcNow, RegisteredVia = "MEMBER", RegisteredBy = "member-1"
+            });
+        }
         await context.SaveChangesAsync();
-
-        ClassRegistrationService service = new ClassRegistrationService(
-            context, new AuditLogService(context), new NotificationService(context));
-
-        if (canCancel)
-        {
-            await service.CancelClassRegistrationAsync("member-1", 1, "Bận việc", "member-1", false);
-            Assert.Equal("CANCELED", booking.Status);
-        }
-        else
-        {
-            BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
-                () => service.CancelClassRegistrationAsync("member-1", 1, null, "member-1", false));
-            Assert.Equal("REGISTRATION_CANCELLATION_TOO_LATE", exception.Code);
-            Assert.Equal("BOOKED", booking.Status);
-        }
+        return booking;
     }
 }
