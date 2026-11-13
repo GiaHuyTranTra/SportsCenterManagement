@@ -35,6 +35,8 @@ public static class ClassEligibility
                 restrictions.Any(item => item.SubscriptionId == subscription.Id && item.DisciplineId == disciplineId))
                 return subscription.Id;
         }
-        throw new BusinessRuleException("PACKAGE_NOT_ELIGIBLE", "Gói tập không cho phép tham gia bộ môn này.");
+        throw new BusinessRuleException(
+            "PACKAGE_NOT_ELIGIBLE",
+            "Lớp này không nằm trong phạm vi gói tập hiện tại. Bạn cần đăng ký gói có bộ môn của lớp này thì mới đăng ký lớp được.");
     }
 }

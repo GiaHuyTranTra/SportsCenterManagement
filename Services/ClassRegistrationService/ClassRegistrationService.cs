@@ -536,9 +536,13 @@ public class ClassRegistrationService : IClassRegistrationService
             }
             catch (BusinessRuleException caught)
             {
-                throw new BusinessRuleException(
-                    caught.Code,
-                    caught.Message + " (buổi ngày " + session.SessionDate.ToString("yyyy-MM-dd") + ")");
+                // Phạm vi bộ môn của gói không phụ thuộc ngày học, nên gắn thêm
+                // ngày buổi vào chỉ làm người đọc tưởng đổi ngày là đăng ký được.
+                throw caught.Code == "PACKAGE_NOT_ELIGIBLE"
+                    ? caught
+                    : new BusinessRuleException(
+                        caught.Code,
+                        caught.Message + " (buổi ngày " + session.SessionDate.ToString("yyyy-MM-dd") + ")");
             }
         }
 
@@ -713,6 +717,30 @@ public class ClassRegistrationService : IClassRegistrationService
         DateTime today = localNow.Date;
         TimeSpan currentTime = localNow.TimeOfDay;
 
+        // Hủy lớp là bỏ cả khóa, nên hạn hủy tính theo giờ khai giảng của lớp
+        // chứ không theo buổi kế tiếp: lớp đã bắt đầu thì chỗ coi như đã dùng.
+        ClassSession? openingSession = await _context.ClassSessions.AsNoTracking()
+            .Where(item => item.ClassId == classId)
+            .OrderBy(item => item.SessionDate)
+            .ThenBy(item => item.StartTime)
+            .FirstOrDefaultAsync();
+
+        if (openingSession is null)
+        {
+            throw new BusinessRuleException(
+                "CLASS_HAS_NO_VALID_SESSION",
+                "Lớp học chưa có buổi nào nên không thể hủy đăng ký.");
+        }
+
+        DateTime classStart = openingSession.SessionDate.Date + openingSession.StartTime;
+
+        if (!isStaff && classStart - localNow < TimeSpan.FromHours(7))
+        {
+            throw new BusinessRuleException(
+                "REGISTRATION_CANCELLATION_TOO_LATE",
+                "Chỉ được hủy lớp trước giờ khai giảng ít nhất 7 tiếng. Lớp đã bắt đầu hoặc chỉ còn dưới 7 tiếng nữa là bắt đầu nên không thể hủy; vui lòng liên hệ quầy lễ tân.");
+        }
+
         List<ClassRegistration> cancelable = registrations
             .Where(item => item.Session.SessionDate > today ||
                 (item.Session.SessionDate == today && item.Session.StartTime > currentTime))
@@ -724,16 +752,6 @@ public class ClassRegistrationService : IClassRegistrationService
             throw new BusinessRuleException(
                 "SESSION_ALREADY_STARTED",
                 "Mọi buổi đã đăng ký đều đã bắt đầu hoặc đã qua nên không thể hủy.");
-        }
-
-        // Giữ nguyên quy tắc 7 giờ của thành viên, tính trên buổi gần nhất.
-        ClassRegistration next = cancelable[0];
-        DateTime nextStart = next.Session.SessionDate.Date + next.Session.StartTime;
-        if (!isStaff && nextStart - localNow < TimeSpan.FromHours(7))
-        {
-            throw new BusinessRuleException(
-                "REGISTRATION_CANCELLATION_TOO_LATE",
-                "Thành viên chỉ được hủy đăng ký trước giờ bắt đầu buổi học ít nhất 7 tiếng. Vui lòng liên hệ quầy lễ tân nếu cần hỗ trợ.");
         }
 
         // Lấy tên trước khi nạp lại entity, để câu audit không phụ thuộc vào
