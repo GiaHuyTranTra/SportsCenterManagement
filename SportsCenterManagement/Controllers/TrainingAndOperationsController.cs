@@ -699,11 +699,17 @@ public class TrainingAndOperationsController : ControllerBase
             return BadRequest("Thành viên chưa có gói tập đang hoạt động hoặc gói tập đã hết hạn sử dụng.");
         }
 
-        var openTodayVisit = await _db.CenterVisits
-            .FirstOrDefaultAsync(v => v.MemberId == memberId && v.VisitDate == today && !v.CheckedOutAt.HasValue);
-        if (openTodayVisit is not null)
+        // Mỗi thành viên chỉ một lượt vào trung tâm mỗi ngày (đặc tả API), kể cả khi lượt
+        // trước đã check-out, để số lượt vào trong báo cáo không bị đếm trùng.
+        CenterVisit? todayVisit = await _db.CenterVisits
+            .Where(v => v.MemberId == memberId && v.VisitDate == today)
+            .OrderBy(v => v.CheckedOutAt.HasValue)
+            .FirstOrDefaultAsync();
+        if (todayVisit is not null)
         {
-            return Conflict("Thành viên đang tập tại trung tâm (chưa ghi nhận giờ ra về cho lượt vào trước đó).");
+            return Conflict(todayVisit.CheckedOutAt.HasValue
+                ? "Thành viên đã check-in hôm nay rồi. Mỗi ngày chỉ được ghi nhận một lượt vào trung tâm."
+                : "Thành viên đang tập tại trung tâm (chưa ghi nhận giờ ra về cho lượt vào trước đó).");
         }
 
         var visit = new CenterVisit
