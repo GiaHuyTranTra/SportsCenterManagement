@@ -279,7 +279,7 @@ public class ClassRegistrationService : IClassRegistrationService
                 memberAccountId,
                 "CLASS_REGISTERED",
                 "Đăng ký buổi học thành công",
-                "Bạn đã đăng ký thành công lớp " + session.Class.Name + " vào ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " " + session.StartTime.ToString(@"hh\:mm") + "–" + session.EndTime.ToString(@"hh\:mm") + ".",
+                "Bạn đã đăng ký thành công lớp " + session.Class.Name + " vào ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " " + session.StartTime.ToString(@"hh\:mm") + "–" + session.EndTime.ToString(@"hh\:mm") + ".",
                 "ClassSession",
                 session.Id.ToString(),
                 sessionStart);
@@ -643,7 +643,7 @@ public class ClassRegistrationService : IClassRegistrationService
                 "CLASS_REGISTERED",
                 "Đăng ký lớp học thành công",
                 "Bạn đã đăng ký lớp " + currentClass.Name + " với " + registrations.Count + " buổi, từ " +
-                    firstDate.ToString("yyyy-MM-dd") + " đến " + lastDate.ToString("yyyy-MM-dd") +
+                    firstDate.ToString("dd/MM/yyyy") + " đến " + lastDate.ToString("dd/MM/yyyy") +
                     ". Buổi đầu tiên bắt đầu " + firstSession.StartTime.ToString(@"hh\:mm") + ".",
                 "ClassSession",
                 firstSession.Id.ToString(),
@@ -754,6 +754,22 @@ public class ClassRegistrationService : IClassRegistrationService
         // Lấy tên trước khi nạp lại entity, để câu audit không phụ thuộc vào
         // trạng thái navigation sau ReloadAsync.
         string memberName = cancelable[0].Member?.FullName ?? memberAccountId;
+        string className = await _context.Classes.AsNoTracking()
+            .Where(item => item.Id == classId)
+            .Select(item => item.Name)
+            .FirstOrDefaultAsync() ?? ("#" + classId);
+
+        // Chụp lại buổi/HLV trước khi cập nhật: ReloadAsync phía dưới không đổi
+        // các cột này nhưng giữ bản chụp giúp phần thông báo không phụ thuộc vào nó.
+        List<CanceledSlot> canceledSlots = cancelable
+            .Select(item => new CanceledSlot(
+                item.SessionId,
+                item.Session.CoachId,
+                item.Session.SessionDate,
+                item.Session.StartTime))
+            .OrderBy(item => item.SessionDate)
+            .ThenBy(item => item.StartTime)
+            .ToList();
 
         DateTime now = DateTime.UtcNow;
         IDbContextTransaction? transaction = operation.Transaction;
@@ -803,6 +819,40 @@ public class ClassRegistrationService : IClassRegistrationService
                 "Class",
                 classId.ToString(),
                 "Hủy đăng ký lớp của học viên " + memberName + " (" + cancelable.Count + " buổi).");
+
+            // Một thông báo cho hội viên và một cho mỗi HLV của các buổi bị nhả chỗ,
+            // gắn vào buổi sớm nhất (ClassChangeEvent khóa theo SessionId).
+            CanceledSlot firstSlot = canceledSlots[0];
+            CanceledSlot lastSlot = canceledSlots[^1];
+            string rangeText = canceledSlots.Count + " buổi, từ " + firstSlot.SessionDate.ToString("dd/MM/yyyy") +
+                " đến " + lastSlot.SessionDate.ToString("dd/MM/yyyy");
+            bool canceledByStaff = isStaff;
+
+            await _notificationService.SendNotificationAsync(
+                memberAccountId,
+                "SESSION_CANCELED",
+                canceledByStaff ? "Lễ tân đã hủy đăng ký lớp học cho bạn" : "Đã hủy đăng ký lớp học",
+                (canceledByStaff ? "Trung tâm đã hủy đăng ký lớp " : "Bạn đã hủy đăng ký lớp ") + className +
+                    " (" + rangeText + "). Chỗ của bạn ở các buổi này đã được nhả." +
+                    (normalizedReason is null ? string.Empty : " Lý do: " + normalizedReason),
+                "ClassSession",
+                firstSlot.SessionId.ToString(),
+                firstSlot.SessionDate.Date + firstSlot.StartTime);
+
+            foreach (IGrouping<string, CanceledSlot> coachSlots in canceledSlots.GroupBy(item => item.CoachId))
+            {
+                CanceledSlot coachFirst = coachSlots.First();
+                await _notificationService.SendNotificationAsync(
+                    coachSlots.Key,
+                    "SESSION_CANCELED",
+                    "Học viên hủy đăng ký lớp " + className,
+                    "Học viên " + memberName + " đã hủy đăng ký lớp " + className + " (" + coachSlots.Count() +
+                        " buổi bạn dạy, từ " + coachFirst.SessionDate.ToString("dd/MM/yyyy") + ")." +
+                        (normalizedReason is null ? string.Empty : " Lý do: " + normalizedReason),
+                    "ClassSession",
+                    coachFirst.SessionId.ToString(),
+                    coachFirst.SessionDate.Date + coachFirst.StartTime);
+            }
 
             await _context.SaveChangesAsync();
 
@@ -1031,4 +1081,6 @@ public class ClassRegistrationService : IClassRegistrationService
         }
         return false;
     }
+
+    private sealed record CanceledSlot(int SessionId, string CoachId, DateTime SessionDate, TimeSpan StartTime);
 }

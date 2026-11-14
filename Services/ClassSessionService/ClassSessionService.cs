@@ -262,6 +262,16 @@ public class ClassSessionService : IClassSessionService
             await _context.ClassSessions.AddAsync(session);
             await _context.SaveChangesAsync();
 
+            await _notificationService.SendNotificationAsync(
+                session.CoachId,
+                "SESSION_COACH_CHANGED",
+                "Bạn có buổi dạy mới: lớp " + currentClass.Name,
+                "Bạn được phân công dạy lớp " + currentClass.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + " " +
+                    session.StartTime.ToString(@"hh\:mm") + "–" + session.EndTime.ToString(@"hh\:mm") + ", tại " + room.Name + ".",
+                "ClassSession",
+                session.Id.ToString(),
+                sessionDate.Date + session.StartTime);
+
             await _auditLogService.StageAuditLogAsync(
                 actorAccountId,
                 "SESSION_CREATED",
@@ -469,7 +479,7 @@ public class ClassSessionService : IClassSessionService
                         reg.MemberId,
                         "SESSION_RESCHEDULED",
                         "Buổi học của bạn đã được dời lịch",
-                        "Buổi học lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("yyyy-MM-dd") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
+                        "Buổi học lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("dd/MM/yyyy") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
                         "ClassSession",
                         session.Id.ToString(),
                         sessionStart);
@@ -479,7 +489,7 @@ public class ClassSessionService : IClassSessionService
                     session.CoachId,
                     "SESSION_RESCHEDULED",
                     "Lịch dạy của bạn đã thay đổi",
-                    "Buổi dạy lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("yyyy-MM-dd") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
+                    "Buổi dạy lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("dd/MM/yyyy") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -501,7 +511,7 @@ public class ClassSessionService : IClassSessionService
                         reg.MemberId,
                         "SESSION_COACH_CHANGED",
                         "Thay đổi huấn luyện viên buổi học",
-                        "Buổi học lớp " + session.Class.Name + " ngày " + sessionDate.ToString("yyyy-MM-dd") + " đã đổi huấn luyện viên.",
+                        "Buổi học lớp " + session.Class.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + " đã đổi huấn luyện viên.",
                         "ClassSession",
                         session.Id.ToString(),
                         sessionStart);
@@ -511,7 +521,7 @@ public class ClassSessionService : IClassSessionService
                     oldCoachId,
                     "SESSION_COACH_CHANGED",
                     "Bạn đã được phân công lại",
-                    "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("yyyy-MM-dd") + ".",
+                    "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + ".",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -520,7 +530,7 @@ public class ClassSessionService : IClassSessionService
                     request.CoachId,
                     "SESSION_COACH_CHANGED",
                     "Bạn có buổi dạy mới",
-                    "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("yyyy-MM-dd") + ".",
+                    "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + ".",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -626,7 +636,7 @@ public class ClassSessionService : IClassSessionService
                     reg.MemberId,
                     "SESSION_COACH_CHANGED",
                     "Thay đổi huấn luyện viên buổi học",
-                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã đổi huấn luyện viên.",
+                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " đã đổi huấn luyện viên.",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -636,7 +646,7 @@ public class ClassSessionService : IClassSessionService
                 oldCoachId,
                 "SESSION_COACH_CHANGED",
                 "Bạn đã được phân công lại",
-                "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + ".",
+                "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + ".",
                 "ClassSession",
                 session.Id.ToString(),
                 sessionStart);
@@ -645,7 +655,7 @@ public class ClassSessionService : IClassSessionService
                 newCoachId,
                 "SESSION_COACH_CHANGED",
                 "Bạn có buổi dạy mới",
-                "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + ".",
+                "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + ".",
                 "ClassSession",
                 session.Id.ToString(),
                 sessionStart);
@@ -838,7 +848,7 @@ public class ClassSessionService : IClassSessionService
                     reg.MemberId,
                     "SESSION_CANCELED",
                     "Buổi học bạn đã đăng ký bị hủy",
-                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã bị hủy. Lý do: " + normalizedReason,
+                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " đã bị hủy. Lý do: " + normalizedReason,
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -849,7 +859,7 @@ public class ClassSessionService : IClassSessionService
                 session.CoachId,
                 "SESSION_CANCELED",
                 "Buổi dạy của bạn đã bị hủy",
-                "Buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã bị hủy. Lý do: " + normalizedReason,
+                "Buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " đã bị hủy. Lý do: " + normalizedReason,
                 "ClassSession",
                 session.Id.ToString(),
                 coachSessionStart);

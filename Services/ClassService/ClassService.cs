@@ -307,6 +307,8 @@ public class ClassService : IClassService
             await _context.ClassSessions.AddRangeAsync(sessions);
             await _context.SaveChangesAsync();
 
+            await NotifyCoachScheduleAssignedAsync(coach.AccountId, normalizedName, sessions, room.Name);
+
             await _auditLogService.StageAuditLogAsync(
                 actorAccountId,
                 "CLASS_CREATED",
@@ -514,6 +516,8 @@ public class ClassService : IClassService
         {
             await _context.ClassSessions.AddRangeAsync(sessions);
             await _context.SaveChangesAsync();
+
+            await NotifyCoachScheduleAssignedAsync(planned.Coach.AccountId, currentClass.Name, sessions, planned.Room.Name);
 
             await _auditLogService.StageAuditLogAsync(
                 actorAccountId,
@@ -1032,6 +1036,47 @@ public class ClassService : IClassService
         };
     }
 
+    private async Task NotifyCoachScheduleAssignedAsync(
+        string coachId,
+        string className,
+        List<ClassSession> sessions,
+        string roomName)
+    {
+        if (sessions.Count == 0)
+        {
+            return;
+        }
+
+        List<ClassSession> ordered = sessions
+            .OrderBy(session => session.SessionDate).ThenBy(session => session.StartTime).ToList();
+        ClassSession first = ordered[0];
+        await _notificationService.SendNotificationAsync(
+            coachId,
+            "SESSION_COACH_CHANGED",
+            "Bạn có lịch dạy mới: lớp " + className,
+            "Bạn được phân công dạy lớp " + className + ": " + DescribeSessionRange(ordered) +
+                (ordered.Count > 1
+                    ? ", khung giờ " + first.StartTime.ToString(@"hh\:mm") + "–" + first.EndTime.ToString(@"hh\:mm")
+                    : string.Empty) +
+                ", tại " + roomName + ".",
+            "ClassSession",
+            first.Id.ToString(),
+            first.SessionDate.Date + first.StartTime);
+    }
+
+    private static string DescribeSessionRange(List<ClassSession> orderedSessions)
+    {
+        if (orderedSessions.Count == 1)
+        {
+            ClassSession only = orderedSessions[0];
+            return "buổi ngày " + only.SessionDate.ToString("dd/MM/yyyy") + " " + only.StartTime.ToString(@"hh\:mm") +
+                "–" + only.EndTime.ToString(@"hh\:mm");
+        }
+
+        return orderedSessions.Count + " buổi từ " + orderedSessions[0].SessionDate.ToString("dd/MM/yyyy") +
+            " đến " + orderedSessions[^1].SessionDate.ToString("dd/MM/yyyy");
+    }
+
     public async Task<CancelFutureSessionsResultViewModel> CancelFutureSessionsAsync(
         string actorAccountId,
         int classId,
@@ -1101,16 +1146,6 @@ public class ClassService : IClassService
                     "ClassSession",
                     session.Id.ToString(),
                     "Hủy buổi học ID " + session.Id + " thuộc lớp " + currentClass.Name + ". Lý do: " + normalizedReason);
-
-                DateTime sessionStart = session.SessionDate.Date + session.StartTime;
-                await _notificationService.SendNotificationAsync(
-                    session.CoachId,
-                    "SESSION_CANCELED",
-                    "Buổi dạy của bạn đã bị hủy",
-                    "Buổi dạy lớp " + currentClass.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã bị hủy. Lý do: " + normalizedReason,
-                    "ClassSession",
-                    session.Id.ToString(),
-                    sessionStart);
             }
 
             foreach (ClassRegistration registration in registrationsToCancel)
@@ -1126,20 +1161,40 @@ public class ClassService : IClassService
                     "ClassRegistration",
                     registration.Id.ToString(),
                     "Hủy đăng ký học viên ID " + registration.MemberId + " do hủy lịch lớp học.");
+            }
 
-                ClassSession? relatedSession = sessionsToCancel.FirstOrDefault(item => item.Id == registration.SessionId);
-                DateTime sessionStart = relatedSession != null
-                    ? relatedSession.SessionDate.Date + relatedSession.StartTime
-                    : now;
-
+            // Hủy cả lớp có thể chạm hàng chục buổi: mỗi HLV và mỗi hội viên chỉ nhận
+            // một thông báo tóm tắt, gắn vào buổi sớm nhất của họ.
+            foreach (IGrouping<string, ClassSession> coachSessions in sessionsToCancel.GroupBy(session => session.CoachId))
+            {
+                List<ClassSession> ordered = coachSessions
+                    .OrderBy(session => session.SessionDate).ThenBy(session => session.StartTime).ToList();
                 await _notificationService.SendNotificationAsync(
-                    registration.MemberId,
+                    coachSessions.Key,
                     "SESSION_CANCELED",
-                    "Buổi học bạn đã đăng ký bị hủy",
-                    "Buổi học lớp " + currentClass.Name + " ngày " + (relatedSession?.SessionDate.ToString("yyyy-MM-dd") ?? "") + " đã bị hủy. Lý do: " + normalizedReason,
+                    "Lịch dạy lớp " + currentClass.Name + " đã bị hủy",
+                    "Lớp " + currentClass.Name + " đã hủy " + DescribeSessionRange(ordered) +
+                        " mà bạn phụ trách. Lý do: " + normalizedReason,
                     "ClassSession",
-                    registration.SessionId.ToString(),
-                    sessionStart);
+                    ordered[0].Id.ToString(),
+                    ordered[0].SessionDate.Date + ordered[0].StartTime);
+            }
+
+            foreach (IGrouping<string, ClassRegistration> memberRegistrations in registrationsToCancel.GroupBy(item => item.MemberId))
+            {
+                HashSet<int> memberSessionIds = memberRegistrations.Select(item => item.SessionId).ToHashSet();
+                List<ClassSession> ordered = sessionsToCancel
+                    .Where(session => memberSessionIds.Contains(session.Id))
+                    .OrderBy(session => session.SessionDate).ThenBy(session => session.StartTime).ToList();
+                await _notificationService.SendNotificationAsync(
+                    memberRegistrations.Key,
+                    "SESSION_CANCELED",
+                    "Lớp " + currentClass.Name + " bạn đăng ký đã bị hủy",
+                    "Trung tâm đã hủy " + DescribeSessionRange(ordered) + " của lớp " + currentClass.Name +
+                        " mà bạn đã đăng ký. Lý do: " + normalizedReason,
+                    "ClassSession",
+                    ordered[0].Id.ToString(),
+                    ordered[0].SessionDate.Date + ordered[0].StartTime);
             }
 
             await _auditLogService.StageAuditLogAsync(

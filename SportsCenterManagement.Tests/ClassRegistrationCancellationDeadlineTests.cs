@@ -100,6 +100,32 @@ public partial class ClassRegistrationServiceTests
         Assert.Equal("CANCELED", booking.Status);
     }
 
+    [Theory]
+    [InlineData(false, "Đã hủy đăng ký lớp học")]
+    [InlineData(true, "Lễ tân đã hủy đăng ký lớp học cho bạn")]
+    public async Task CancelClassRegistrationAsync_NotifiesMemberAndCoach(bool isStaff, string expectedMemberTitle)
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        ClassRegistration booking = await SeedClassWithOpeningSessionAsync(
+            context, 24 * 3, memberBookedOpening: true);
+        string coachId = (await context.ClassSessions.SingleAsync(item => item.Id == booking.SessionId)).CoachId;
+
+        ClassRegistrationService service = new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context));
+
+        await service.CancelClassRegistrationAsync(
+            "member-1", 1, "Bận việc đột xuất", isStaff ? "receptionist-1" : "member-1", isStaff);
+
+        List<Notification> notifications = await context.Notifications.ToListAsync();
+        Notification memberNotice = Assert.Single(notifications, item => item.RecipientId == "member-1");
+        Assert.Equal("SESSION_CANCELED", memberNotice.Type);
+        Assert.Equal(expectedMemberTitle, memberNotice.Title);
+        Assert.Contains("2 buổi", memberNotice.Body);
+        Assert.Contains(notifications, item => item.RecipientId == coachId && item.Type == "SESSION_CANCELED");
+        Assert.Equal(1 + notifications.Select(item => item.RecipientId).Distinct().Count(id => id != "member-1"),
+            notifications.Count);
+    }
+
     /// <summary>
     /// Lớp có buổi khai giảng (Id 2) lệch <paramref name="hoursUntilClassOpens"/> so
     /// với hiện tại và một buổi sau đó 5 ngày (Id 1) mà hội viên giữ chỗ. Trả về
