@@ -73,7 +73,7 @@ public class DemoPaymentTests
     }
 
     [Fact]
-    public async Task SimulationRequiresConfirmationAndCurrentPackagePrice()
+    public async Task SimulationRequiresConfirmationAndUsesCapturedPackagePrice()
     {
         await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
         MembershipInvoice invoice = fixture.AddInvoice(500000, "PENDING_PAYMENT", null, "BANK_TRANSFER");
@@ -84,9 +84,11 @@ public class DemoPaymentTests
         Assert.Equal("DEMO_CONFIRMATION_REQUIRED", confirmation.Code);
         fixture.Package.Price = 700000;
         await fixture.Context.SaveChangesAsync();
-        await Assert.ThrowsAsync<BusinessRuleException>(() => service.ConfirmDemoPaymentAsync(invoice.Id, fixture.Member.AccountId, true));
-        Assert.Equal("PENDING_PAYMENT", invoice.Status);
-        Assert.Null(invoice.PaidAt);
+        VnpayInvoiceStatusAPIViewModel status =
+            await service.ConfirmDemoPaymentAsync(invoice.Id, fixture.Member.AccountId, true);
+        Assert.Equal("PAID", status.Status);
+        Assert.Equal(500000m, invoice.Amount);
+        Assert.Equal(500000m, invoice.Subscription.PackagePrice);
     }
 
     [Theory]

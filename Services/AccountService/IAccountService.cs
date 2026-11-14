@@ -41,6 +41,7 @@ public enum UpdateAccountStatusResult
     InvalidStatus,
     SelfDeactivationNotAllowed,
     LastActiveCenterManager,
+    CoachHasUpcomingSessions,
     ConcurrencyConflict
 }
 

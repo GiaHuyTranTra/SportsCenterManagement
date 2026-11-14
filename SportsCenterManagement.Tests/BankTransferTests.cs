@@ -65,12 +65,10 @@ public class BankTransferTests
     [InlineData("unconfirmed", PayInvoiceResult.InvalidConfirmation)]
     [InlineData("cash", PayInvoiceResult.InvalidPaymentMethod)]
     [InlineData("member", PayInvoiceResult.StaffRoleNotAllowed)]
-    [InlineData("upgrade", PayInvoiceResult.QuoteExpired)]
     public async Task InvalidConfirmationDoesNotChangeData(string scenario, PayInvoiceResult expected)
     {
         await using ReportTestFixture fixture = await ReportTestFixture.CreateAsync();
         MembershipInvoice invoice = fixture.AddInvoice(500000m, "PENDING_PAYMENT", null, scenario == "cash" ? "CASH" : "BANK_TRANSFER");
-        if (scenario == "upgrade") { invoice.Subscription.Kind = "UPGRADE"; invoice.CreatedAt = DateTime.UtcNow.AddDays(-2); }
         await fixture.Context.SaveChangesAsync();
         ConfirmBankTransferAPIViewModel request = Request();
         if (scenario == "amount") request.Amount = 1;

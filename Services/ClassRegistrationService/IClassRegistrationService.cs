@@ -28,4 +28,25 @@ public interface IClassRegistrationService
         string? reason,
         string actorAccountId,
         bool isStaff);
+
+    /// <summary>Đăng ký cả lớp: giữ chỗ mọi buổi còn ở tương lai của lớp.</summary>
+    Task<ClassEnrollmentViewModel> RegisterClassAsync(
+        string memberAccountId,
+        int classId,
+        string registeredVia,
+        string registeredByAccountId);
+
+    /// <summary>Hủy đăng ký cả lớp: nhả chỗ ở mọi buổi chưa bắt đầu.</summary>
+    Task<ClassEnrollmentViewModel> CancelClassRegistrationAsync(
+        string memberAccountId,
+        int classId,
+        string? reason,
+        string actorAccountId,
+        bool isStaff);
+
+    Task<PagedResult<ClassEnrollmentViewModel>> GetMyClassEnrollmentsAsync(
+        string memberAccountId,
+        bool includeCanceled,
+        int page,
+        int pageSize);
 }

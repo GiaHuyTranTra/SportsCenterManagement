@@ -156,17 +156,19 @@ public partial class ClassRegistrationServiceTests
     }
 
     [Fact]
-    public async Task RegisterAsync_IneligibleSportInPackage_ThrowsPackageNotEligible()
+    public async Task RegisterAsync_SnapshotExcludesDiscipline_ThrowsPackageNotEligible()
     {
         await using SportsCenterManagementContext context = CreateContext();
         DateTime futureDate = DateTime.UtcNow.AddDays(3).Date;
         await SeedValidMemberAndSessionAsync(context, futureDate, capacity: 10, bookedCount: 0);
 
-        // Add restriction for package 1 that only allows discipline 99 (not 1)
-        context.MembershipPackageSports.Add(new MembershipPackageSport
+        MemberSubscription subscription = await context.MemberSubscriptions.SingleAsync();
+        subscription.HasDisciplineRestrictions = true;
+        subscription.SubscriptionDisciplines.Add(new MemberSubscriptionDiscipline
         {
-            PackageId = 1,
+            SubscriptionId = subscription.Id,
             DisciplineId = 99
+            ,DisciplineName = "Boxing"
         });
         await context.SaveChangesAsync();
 
@@ -179,6 +181,46 @@ public partial class ClassRegistrationServiceTests
             () => service.RegisterAsync("member-1", 1, "MEMBER", "member-1"));
 
         Assert.Equal("PACKAGE_NOT_ELIGIBLE", exception.Code);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_LaterCatalogEditDoesNotRemoveBoughtDiscipline()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        DateTime futureDate = DateTime.UtcNow.AddDays(3).Date;
+        await SeedValidMemberAndSessionAsync(context, futureDate, capacity: 10, bookedCount: 0);
+        MemberSubscription subscription = await context.MemberSubscriptions.SingleAsync();
+        subscription.HasDisciplineRestrictions = true;
+        subscription.SubscriptionDisciplines.Add(new MemberSubscriptionDiscipline
+        {
+            SubscriptionId = subscription.Id, DisciplineId = 1, DisciplineName = "Yoga"
+        });
+        context.MembershipPackageSports.Add(new MembershipPackageSport { PackageId = 1, DisciplineId = 99 });
+        await context.SaveChangesAsync();
+
+        ClassRegistrationViewModel result = await new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context))
+            .RegisterAsync("member-1", 1, "MEMBER", "member-1");
+
+        Assert.Equal("BOOKED", result.Status);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_UnrestrictedSnapshotAllowsAnyDisciplineDespiteCatalogEdits()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        DateTime futureDate = DateTime.UtcNow.AddDays(3).Date;
+        await SeedValidMemberAndSessionAsync(context, futureDate, capacity: 10, bookedCount: 0);
+        MemberSubscription subscription = await context.MemberSubscriptions.SingleAsync();
+        subscription.HasDisciplineRestrictions = false;
+        context.MembershipPackageSports.Add(new MembershipPackageSport { PackageId = 1, DisciplineId = 99 });
+        await context.SaveChangesAsync();
+
+        ClassRegistrationViewModel result = await new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context))
+            .RegisterAsync("member-1", 1, "MEMBER", "member-1");
+
+        Assert.Equal("BOOKED", result.Status);
     }
 
     [Fact]

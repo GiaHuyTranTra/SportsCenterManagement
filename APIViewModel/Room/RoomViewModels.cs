@@ -34,7 +34,7 @@ public class CreateRoomAPIViewModel
     [Range(1, int.MaxValue, ErrorMessage = "Sức chứa phòng phải là số nguyên dương.")]
     public int Capacity { get; set; }
 
-    [RegularExpression("^(STUDIO|GYM|POOL|COURT|OTHER)$", ErrorMessage = "Loại phòng không hợp lệ.")]
+    [StringLength(50, ErrorMessage = "Loại phòng tối đa 50 ký tự.")]
     public string? RoomType { get; set; }
 }
 
@@ -50,7 +50,7 @@ public class UpdateRoomAPIViewModel
     [Range(1, int.MaxValue, ErrorMessage = "Sức chứa phòng phải là số nguyên dương.")]
     public int Capacity { get; set; }
 
-    [RegularExpression("^(STUDIO|GYM|POOL|COURT|OTHER)$", ErrorMessage = "Loại phòng không hợp lệ.")]
+    [StringLength(50, ErrorMessage = "Loại phòng tối đa 50 ký tự.")]
     public string? RoomType { get; set; }
 }
 

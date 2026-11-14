@@ -16,14 +16,127 @@ namespace SportsCenterManagement.Tests;
 public class ClassServiceTests
 {
     [Fact]
-    public async Task CreateClassAsync_ValidRequest_CreatesClassAndWritesAuditLog()
+    public async Task CreateClassAsync_ValidRequest_CreatesClassWithSessionsAndWritesAuditLog()
     {
         await using SportsCenterManagementContext context = CreateContext();
-        context.Disciplines.Add(new Discipline
+        SeedScheduleReferences(context);
+        await context.SaveChangesAsync();
+
+        ClassService service = new ClassService(
+            context,
+            new AuditLogService(context),
+            new NotificationService(context));
+
+        // Lớp mới luôn đi kèm lịch: giáo viên đứng lớp, phòng, khoảng ngày, các
+        // thứ trong tuần và khung giờ.
+        CreateClassAPIViewModel request = new CreateClassAPIViewModel
         {
-            Id = 1,
-            Name = "Yoga",
-            IsActive = true,
+            SportId = 1,
+            Name = "Morning Vinyasa",
+            Description = "Flow yoga",
+            Capacity = 20,
+            Status = "OPEN",
+            Schedule = ScheduleFor()
+        };
+
+        ClassViewModel result = await service.CreateClassAsync("manager-1", request);
+
+        Assert.Equal("Morning Vinyasa", result.Name);
+        Assert.Equal(20, result.Capacity);
+        // Lớp vừa tạo đã có buổi nên mở đăng ký được ngay.
+        Assert.Equal("OPEN", result.Status);
+
+        List<ClassSession> sessions = await context.ClassSessions.ToListAsync();
+        Assert.Equal(result.TotalSessionCount, sessions.Count);
+        Assert.All(sessions, session =>
+        {
+            Assert.Equal("coach-1", session.CoachId);
+            Assert.Equal(1, session.RoomId);
+            Assert.Equal("SCHEDULED", session.Status);
+            // Chỉ sinh buổi vào các thứ đã chọn (thứ hai và thứ tư).
+            Assert.Contains(session.SessionDate.DayOfWeek, new[] { DayOfWeek.Monday, DayOfWeek.Wednesday });
+        });
+
+        // Lớp mới chỉ có một đợt lịch, chính đợt vừa nhập.
+        ClassScheduleBlockViewModel block = Assert.Single(result.ScheduleBlocks);
+        Assert.Equal("coach-1", block.CoachId);
+        Assert.Equal(1, block.RoomId);
+        Assert.Equal("18:00", block.StartTime);
+        Assert.Equal("19:30", block.EndTime);
+        Assert.Equal(new List<int> { 1, 3 }, block.DaysOfWeek);
+        Assert.Equal(sessions.Count, block.SessionCount);
+
+        AuditLog auditLog = Assert.Single(await context.AuditLogs.ToListAsync());
+        Assert.Equal("CLASS_CREATED", auditLog.Action);
+    }
+
+    [Fact]
+    public async Task CreateClassAsync_WithoutSchedule_ThrowsValidationError()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        SeedScheduleReferences(context);
+        await context.SaveChangesAsync();
+
+        ClassService service = new ClassService(
+            context,
+            new AuditLogService(context),
+            new NotificationService(context));
+
+        // Thiếu lịch học thì không tạo được lớp, và không để lại lớp rỗng.
+        BusinessRuleException error = await Assert.ThrowsAsync<BusinessRuleException>(() =>
+            service.CreateClassAsync("manager-1", new CreateClassAPIViewModel
+            {
+                SportId = 1,
+                Name = "No Schedule",
+                Capacity = 10,
+                Status = "DRAFT"
+            }));
+
+        Assert.Equal("VALIDATION_ERROR", error.Code);
+        Assert.False(await context.Classes.AnyAsync());
+    }
+
+    [Fact]
+    public async Task CreateClassAsync_WithoutRoom_ThrowsRoomNotFound()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        SeedScheduleReferences(context);
+        await context.SaveChangesAsync();
+
+        ClassService service = new ClassService(
+            context,
+            new AuditLogService(context),
+            new NotificationService(context));
+
+        ClassScheduleAPIViewModel schedule = ScheduleFor();
+        schedule.RoomId = 0;
+
+        // Phòng học là bắt buộc: lớp không có phòng thì không lập được lịch.
+        BusinessRuleException error = await Assert.ThrowsAsync<BusinessRuleException>(() =>
+            service.CreateClassAsync("manager-1", new CreateClassAPIViewModel
+            {
+                SportId = 1,
+                Name = "No Room",
+                Capacity = 10,
+                Status = "DRAFT",
+                Schedule = schedule
+            }));
+
+        Assert.Equal("ROOM_NOT_FOUND", error.Code);
+        Assert.False(await context.Classes.AnyAsync());
+    }
+
+    [Fact]
+    public async Task CreateClassAsync_CoachOutsideDiscipline_ThrowsCoachNotQualified()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        SeedScheduleReferences(context);
+        context.Disciplines.Add(new Discipline { Id = 2, Name = "Boxing", IsActive = true, CreatedAt = DateTime.UtcNow });
+        // Hồ sơ đã khai chuyên môn Yoga, nên không nhận lớp Boxing.
+        context.CoachDisciplines.Add(new CoachDiscipline
+        {
+            CoachAccountId = "coach-1",
+            DisciplineId = 1,
             CreatedAt = DateTime.UtcNow
         });
         await context.SaveChangesAsync();
@@ -33,23 +146,69 @@ public class ClassServiceTests
             new AuditLogService(context),
             new NotificationService(context));
 
-        CreateClassAPIViewModel request = new CreateClassAPIViewModel
+        BusinessRuleException error = await Assert.ThrowsAsync<BusinessRuleException>(() =>
+            service.CreateClassAsync("manager-1", new CreateClassAPIViewModel
+            {
+                SportId = 2,
+                Name = "Boxing Basics",
+                Capacity = 10,
+                Status = "DRAFT",
+                Schedule = ScheduleFor()
+            }));
+
+        Assert.Equal("COACH_NOT_QUALIFIED", error.Code);
+        Assert.False(await context.Classes.AnyAsync());
+    }
+
+    /// <summary>Bộ môn, giáo viên và phòng tối thiểu để lập được một lịch học.</summary>
+    private static void SeedScheduleReferences(SportsCenterManagementContext context)
+    {
+        context.Disciplines.Add(new Discipline
         {
-            SportId = 1,
-            Name = "Morning Vinyasa",
-            Description = "Flow yoga",
-            Capacity = 20,
-            Status = "DRAFT"
+            Id = 1,
+            Name = "Yoga",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.Accounts.Add(new Account
+        {
+            Id = "coach-1",
+            Email = "coach-1@example.com",
+            PasswordHash = "x",
+            RoleId = 2,
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        });
+        context.Coaches.Add(new Coach
+        {
+            AccountId = "coach-1",
+            FullName = "Coach One",
+            CreatedAt = DateTime.UtcNow
+        });
+        context.Rooms.Add(new Room
+        {
+            Id = 1,
+            Name = "Studio A",
+            Capacity = 30,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>Lịch bốn tuần vào thứ hai và thứ tư, ca tối 18:00–19:30.</summary>
+    private static ClassScheduleAPIViewModel ScheduleFor()
+    {
+        DateTime start = DateTime.UtcNow.AddHours(7).Date.AddDays(1);
+        return new ClassScheduleAPIViewModel
+        {
+            CoachId = "coach-1",
+            RoomId = 1,
+            StartDate = start.ToString("yyyy-MM-dd"),
+            EndDate = start.AddDays(27).ToString("yyyy-MM-dd"),
+            DaysOfWeek = new List<int> { 1, 3 },
+            StartTime = "18:00",
+            EndTime = "19:30"
         };
-
-        ClassViewModel result = await service.CreateClassAsync("manager-1", request);
-
-        Assert.Equal("Morning Vinyasa", result.Name);
-        Assert.Equal(20, result.Capacity);
-        Assert.Equal("DRAFT", result.Status);
-
-        AuditLog auditLog = Assert.Single(await context.AuditLogs.ToListAsync());
-        Assert.Equal("CLASS_CREATED", auditLog.Action);
     }
 
     [Fact]

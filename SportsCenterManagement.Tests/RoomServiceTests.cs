@@ -142,8 +142,11 @@ public class RoomServiceTests
 
         RoomService service = new RoomService(context, new AuditLogService(context));
 
-        await service.UpdateRoomStatusAsync("manager-1", 2, false);
-        Assert.False((await context.Rooms.SingleAsync(item => item.Id == 2)).IsActive);
+        BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => service.UpdateRoomStatusAsync("manager-1", 2, false));
+        Assert.Equal("ROOM_HAS_UPCOMING_SESSIONS", exception.Code);
+        Assert.True((await context.Rooms.SingleAsync(item => item.Id == 2)).IsActive);
+
         Assert.Equal("SCHEDULED", (await context.ClassSessions.SingleAsync()).Status);
     }
 

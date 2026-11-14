@@ -100,6 +100,7 @@ public class CoachController : ControllerBase
             UpdateCoachResult.DisciplineNotFoundOrInactive =>
                 BadRequest("A discipline was not found or is inactive."),
             UpdateCoachResult.NoChanges => BadRequest("No changes were provided."),
+            UpdateCoachResult.HasUpcomingSessions => Conflict("Không thể gỡ chuyên môn bộ môn khi huấn luyện viên vẫn đang có lịch dạy sắp tới thuộc bộ môn đó. Vui lòng phân công huấn luyện viên thay thế trước."),
             UpdateCoachResult.ConcurrencyConflict => Conflict("A concurrent request conflict occurred."),
             _ => StatusCode(StatusCodes.Status500InternalServerError)
         };
@@ -126,6 +127,7 @@ public class CoachController : ControllerBase
             UpdateCoachStatusResult.NotFound => NotFound("Coach not found."),
             UpdateCoachStatusResult.InvalidStatus => BadRequest("Status must be Active or Inactive."),
             UpdateCoachStatusResult.NoChanges => BadRequest("No status change was provided."),
+            UpdateCoachStatusResult.HasUpcomingSessions => Conflict("Không thể ngừng hoạt động huấn luyện viên khi vẫn đang có buổi dạy sắp tới. Vui lòng phân công huấn luyện viên thay thế trước."),
             UpdateCoachStatusResult.ConcurrencyConflict => Conflict("A concurrent request conflict occurred."),
             _ => StatusCode(StatusCodes.Status500InternalServerError)
         };
@@ -146,6 +148,7 @@ public class CoachController : ControllerBase
             DeleteCoachResult.Success => NoContent(),
             DeleteCoachResult.NotFound => NotFound("Coach not found."),
             DeleteCoachResult.AlreadyDeleted => BadRequest("Coach is already deleted."),
+            DeleteCoachResult.HasUpcomingSessions => Conflict("Không thể xóa huấn luyện viên khi vẫn đang có buổi dạy sắp tới. Vui lòng phân công huấn luyện viên thay thế trước."),
             DeleteCoachResult.ConcurrencyConflict => Conflict("A concurrent request conflict occurred."),
             _ => StatusCode(StatusCodes.Status500InternalServerError)
         };

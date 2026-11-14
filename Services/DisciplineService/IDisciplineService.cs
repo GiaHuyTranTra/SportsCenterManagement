@@ -17,6 +17,7 @@ public enum UpdateDisciplineResult
     InvalidData,
     DuplicateName,
     NoChanges,
+    HasActiveClassesOrSessions,
     ConcurrencyConflict
 }
 
@@ -25,6 +26,7 @@ public enum UpdateDisciplineStatusResult
     Success,
     NotFound,
     NoChanges,
+    HasActiveClassesOrSessions,
     ConcurrencyConflict
 }
 

@@ -95,7 +95,7 @@ public class MembershipPackageController : ControllerBase
         }
 
         (CreatePackageResult Result, MembershipPackageDetailAPIViewModel? Package) result =
-            await _membershipPackageService.CreatePackageAsync(request);
+            await _membershipPackageService.CreatePackageAsync(request, User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
 
         switch (result.Result)
         {
@@ -124,7 +124,7 @@ public class MembershipPackageController : ControllerBase
         }
 
         (UpdatePackageResult Result, MembershipPackageDetailAPIViewModel? Package) result =
-            await _membershipPackageService.UpdatePackageAsync(id, request);
+            await _membershipPackageService.UpdatePackageAsync(id, request, User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
 
         switch (result.Result)
         {
@@ -152,7 +152,7 @@ public class MembershipPackageController : ControllerBase
         }
 
         UpdatePackageStatusResult result = await _membershipPackageService
-            .UpdatePackageStatusAsync(id, request.IsActive.Value);
+            .UpdatePackageStatusAsync(id, request.IsActive.Value, User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
 
         switch (result)
         {
@@ -168,7 +168,7 @@ public class MembershipPackageController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> DeletePackageAsync([FromRoute] int id)
     {
-        DeletePackageResult result = await _membershipPackageService.DeletePackageAsync(id);
+        DeletePackageResult result = await _membershipPackageService.DeletePackageAsync(id, User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
 
         switch (result)
         {

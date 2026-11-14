@@ -49,4 +49,132 @@ public partial class ClassRegistrationServiceTests
             Assert.Empty(await context.AuditLogs.ToListAsync());
         }
     }
+
+    // Hủy lớp bám buổi đầu tiên hội viên giữ chỗ, không bám buổi kế tiếp: đã học
+    // (hoặc sắp học trong 7 tiếng) buổi đầu thì dù còn buổi ở xa cũng không hủy.
+    [Theory]
+    [InlineData(10, true)]
+    [InlineData(6, false)]
+    [InlineData(-24, false)]
+    public async Task CancelClassRegistrationAsync_UsesMemberOpeningTimeForDeadline(
+        int hoursUntilClassOpens,
+        bool canCancel)
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        ClassRegistration booking = await SeedClassWithOpeningSessionAsync(
+            context, hoursUntilClassOpens, memberBookedOpening: true);
+
+        ClassRegistrationService service = new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context));
+
+        if (canCancel)
+        {
+            await service.CancelClassRegistrationAsync("member-1", 1, "Bận việc", "member-1", false);
+            Assert.Equal("CANCELED", booking.Status);
+        }
+        else
+        {
+            BusinessRuleException exception = await Assert.ThrowsAsync<BusinessRuleException>(
+                () => service.CancelClassRegistrationAsync("member-1", 1, null, "member-1", false));
+            Assert.Equal("REGISTRATION_CANCELLATION_TOO_LATE", exception.Code);
+            Assert.Equal("BOOKED", booking.Status);
+        }
+    }
+
+    // Hội viên vào giữa khóa (lớp đã khai giảng trước đó nhưng họ chưa học buổi
+    // nào) vẫn tự hủy được khi buổi đầu của họ còn hơn 7 tiếng.
+    [Theory]
+    [InlineData(-24 * 30)]
+    [InlineData(6)]
+    public async Task CancelClassRegistrationAsync_LateJoinerCanCancelBeforeOwnFirstSession(
+        int hoursUntilClassOpens)
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        ClassRegistration booking = await SeedClassWithOpeningSessionAsync(
+            context, hoursUntilClassOpens, memberBookedOpening: false);
+
+        ClassRegistrationService service = new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context));
+
+        await service.CancelClassRegistrationAsync("member-1", 1, "Bận việc", "member-1", false);
+        Assert.Equal("CANCELED", booking.Status);
+    }
+
+    [Theory]
+    [InlineData(false, "Đã hủy đăng ký lớp học")]
+    [InlineData(true, "Lễ tân đã hủy đăng ký lớp học cho bạn")]
+    public async Task CancelClassRegistrationAsync_NotifiesMemberAndCoach(bool isStaff, string expectedMemberTitle)
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        ClassRegistration booking = await SeedClassWithOpeningSessionAsync(
+            context, 24 * 3, memberBookedOpening: true);
+        string coachId = (await context.ClassSessions.SingleAsync(item => item.Id == booking.SessionId)).CoachId;
+
+        ClassRegistrationService service = new ClassRegistrationService(
+            context, new AuditLogService(context), new NotificationService(context));
+
+        await service.CancelClassRegistrationAsync(
+            "member-1", 1, "Bận việc đột xuất", isStaff ? "receptionist-1" : "member-1", isStaff);
+
+        List<Notification> notifications = await context.Notifications.ToListAsync();
+        Notification memberNotice = Assert.Single(notifications, item => item.RecipientId == "member-1");
+        Assert.Equal("SESSION_CANCELED", memberNotice.Type);
+        Assert.Equal(expectedMemberTitle, memberNotice.Title);
+        Assert.Contains("2 buổi", memberNotice.Body);
+        Assert.Contains(notifications, item => item.RecipientId == coachId && item.Type == "SESSION_CANCELED");
+        Assert.Equal(1 + notifications.Select(item => item.RecipientId).Distinct().Count(id => id != "member-1"),
+            notifications.Count);
+    }
+
+    /// <summary>
+    /// Lớp có buổi khai giảng (Id 2) lệch <paramref name="hoursUntilClassOpens"/> so
+    /// với hiện tại và một buổi sau đó 5 ngày (Id 1) mà hội viên giữ chỗ. Trả về
+    /// lượt giữ chỗ của buổi 5 ngày sau.
+    /// </summary>
+    private async Task<ClassRegistration> SeedClassWithOpeningSessionAsync(
+        SportsCenterManagementContext context,
+        int hoursUntilClassOpens,
+        bool memberBookedOpening)
+    {
+        DateTime bookedSessionDate = DateTime.UtcNow.AddHours(7).AddDays(5).Date;
+        await SeedValidMemberAndSessionAsync(context, bookedSessionDate, 10, 1);
+
+        ClassSession bookedSession = await context.ClassSessions.SingleAsync();
+        bookedSession.StartTime = new TimeSpan(18, 0, 0);
+        bookedSession.EndTime = new TimeSpan(19, 0, 0);
+
+        DateTime opensAt = DateTime.UtcNow.AddHours(7 + hoursUntilClassOpens);
+        ClassSession openingSession = new ClassSession
+        {
+            Id = 2,
+            ClassId = 1,
+            RoomId = 1,
+            CoachId = "coach-1",
+            SessionDate = opensAt.Date,
+            StartTime = opensAt.TimeOfDay,
+            EndTime = opensAt.AddHours(1).TimeOfDay,
+            Capacity = 10,
+            BookedCount = 0,
+            Status = "SCHEDULED",
+            CreatedAt = DateTime.UtcNow
+        };
+        context.ClassSessions.Add(openingSession);
+
+        ClassRegistration booking = new ClassRegistration
+        {
+            Id = 71, SessionId = 1, MemberId = "member-1", Status = "BOOKED",
+            RegisteredAt = DateTime.UtcNow, RegisteredVia = "MEMBER", RegisteredBy = "member-1"
+        };
+        context.ClassRegistrations.Add(booking);
+        if (memberBookedOpening)
+        {
+            context.ClassRegistrations.Add(new ClassRegistration
+            {
+                Id = 72, SessionId = 2, MemberId = "member-1", Status = "BOOKED",
+                RegisteredAt = DateTime.UtcNow, RegisteredVia = "MEMBER", RegisteredBy = "member-1"
+            });
+        }
+        await context.SaveChangesAsync();
+        return booking;
+    }
 }

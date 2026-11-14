@@ -56,12 +56,12 @@ public interface IMemberService
     Task<MemberDetailAPIViewModel?> GetMemberByIdAsync(string accountId);
 
     Task<(CreateManagedMemberResult Result, CreateManagedMemberResponseAPIViewModel? Data)>
-        CreateManagedMemberAsync(CreateManagedMemberAPIViewModel request);
+        CreateManagedMemberAsync(CreateManagedMemberAPIViewModel request, string? actorAccountId = null);
 
     Task<(UpdateManagedMemberResult Result, MemberDetailAPIViewModel? Data)>
-        UpdateManagedMemberAsync(string accountId, UpdateManagedMemberAPIViewModel request);
+        UpdateManagedMemberAsync(string accountId, UpdateManagedMemberAPIViewModel request, string? actorAccountId = null);
 
-    Task<DeleteMemberResult> SoftDeleteMemberAsync(string accountId);
+    Task<DeleteMemberResult> SoftDeleteMemberAsync(string accountId, string? actorAccountId = null);
 
     Task<UpdateMemberResult> UpdateMemberAsync(
         string accountId,
@@ -69,7 +69,7 @@ public interface IMemberService
 
     Task<UpdateMemberStatusResult> UpdateMemberStatusAsync(
         string accountId,
-        string status);
+        string status, string? actorAccountId = null);
 
     Task<PagedMemberSearchResultAPIViewModel> QuickSearchMembersAsync(
         string keyword,

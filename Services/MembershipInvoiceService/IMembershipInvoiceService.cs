@@ -47,6 +47,7 @@ public enum CancelInvoiceResult
     Success,
     InvoiceNotFound,
     InvalidInvoiceState,
+    ConfirmedSubscriptionCannotBeCanceled,
     CallerNotFound,
     CallerInactive,
     CallerLocked,
@@ -75,7 +76,9 @@ public interface IMembershipInvoiceService
         string? search,
         string? paymentMethod,
         int page,
-        int pageSize);
+        int pageSize,
+        DateOnly? fromDate = null,
+        DateOnly? toDate = null);
 
     Task<(PayInvoiceResult Result, MembershipReceiptAPIViewModel? Receipt)> PayInvoiceAsync(
         int invoiceId,

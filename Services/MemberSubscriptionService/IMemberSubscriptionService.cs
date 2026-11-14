@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
+using APIViewModel.Member;
 using APIViewModel.MemberSubscription;
 
 namespace Services.MemberSubscriptionService;
@@ -11,9 +12,12 @@ public enum RegisterSubscriptionResult
     PackageNotFound,
     PackageInactive,
     PendingOrderExists,
+    SubscriptionSuspended,
+    UpcomingSubscriptionExists,
     MemberNotFound,
     MemberInactive,
     MemberLocked,
+    TermsAcceptanceRequired,
     InvalidPaymentMethod,
     ConcurrencyConflict
 }
@@ -22,6 +26,8 @@ public enum CounterRegisterResult
 {
     Success,
     PendingOrderExists,
+    SubscriptionSuspended,
+    UpcomingSubscriptionExists,
     MemberNotFound,
     MemberInactive,
     MemberLocked,
@@ -34,12 +40,13 @@ public enum CounterRegisterResult
     StaffInactive,
     StaffLocked,
     StaffRoleNotAllowed,
+    TermsAcceptanceRequired,
     InvoiceNumberCollision,
     DataIntegrityViolation,
     ConcurrencyConflict
 }
 
-public enum CounterRegisterMemberResult
+public enum CounterCreateMemberResult
 {
     Success,
     InvalidData,
@@ -49,13 +56,7 @@ public enum CounterRegisterMemberResult
     StaffInactive,
     StaffLocked,
     StaffRoleNotAllowed,
-    PackageNotFound,
-    PackageInactive,
     MemberRoleMissing,
-    PendingOrderExists,
-    PriceChanged,
-    InvalidPaymentMethod,
-    InvoiceNumberCollision,
     ConcurrencyConflict
 }
 
@@ -69,8 +70,8 @@ public interface IMemberSubscriptionService
         string staffAccountId,
         CounterRegisterSubscriptionAPIViewModel request);
 
-    Task<(CounterRegisterMemberResult Result, CounterRegisterMemberResponseAPIViewModel? Data)>
-        RegisterMemberAtCounterAsync(
+    Task<(CounterCreateMemberResult Result, CounterCreateMemberResponseAPIViewModel? Data)>
+        CreateMemberAccountAtCounterAsync(
             string staffAccountId,
-            CounterRegisterMemberAPIViewModel request);
+            CounterCreateMemberAPIViewModel request);
 }

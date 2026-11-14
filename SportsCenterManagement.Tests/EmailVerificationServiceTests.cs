@@ -100,7 +100,7 @@ public class EmailVerificationServiceTests
     {
         public bool IsConfigured => true;
 
-        public Task SendMemberWelcomeAsync(string recipientEmail, string fullName, string initialPassword, string packageName, decimal amount) => Task.CompletedTask;
+        public Task SendMemberAccountWelcomeAsync(string recipientEmail, string fullName, string initialPassword) => Task.CompletedTask;
 
         public bool ShouldFail { get; set; }
 

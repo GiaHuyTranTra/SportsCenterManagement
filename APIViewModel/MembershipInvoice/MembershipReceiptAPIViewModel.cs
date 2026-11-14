@@ -28,6 +28,10 @@ public class MembershipReceiptAPIViewModel
 
     public string SubscriptionStatus { get; set; } = null!;
 
+    public bool IsSuspended { get; set; }
+
+    public string? SuspensionReason { get; set; }
+
     public string Kind { get; set; } = null!;
 
     public DateOnly StartDate { get; set; }

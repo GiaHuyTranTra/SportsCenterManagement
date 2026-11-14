@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using APIViewModel.MembershipInvoice;
 using APIViewModel.MemberSubscription;
+using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -43,23 +44,30 @@ public class MemberSubscriptionController : ControllerBase
             case RegisterSubscriptionResult.Success when data is not null:
                 return StatusCode(StatusCodes.Status201Created, data);
             case RegisterSubscriptionResult.InvalidPackageId:
-                return BadRequest("Invalid membership package id.");
+                return BadRequest("Mã gói tập không hợp lệ.");
             case RegisterSubscriptionResult.InvalidPaymentMethod:
-                return BadRequest("Invalid payment method. Allowed methods: CASH, BANK_TRANSFER, CARD.");
+                return BadRequest("Phương thức thanh toán không hợp lệ. Chỉ hỗ trợ: CASH, BANK_TRANSFER, CARD.");
             case RegisterSubscriptionResult.MemberNotFound:
-                return NotFound("Member account not found.");
+                return NotFound("Không tìm thấy tài khoản hội viên.");
             case RegisterSubscriptionResult.MemberInactive:
-                return StatusCode(StatusCodes.Status403Forbidden, "Member account is inactive.");
+                return StatusCode(StatusCodes.Status403Forbidden, "Tài khoản hội viên đang ngừng hoạt động.");
             case RegisterSubscriptionResult.MemberLocked:
-                return StatusCode(StatusCodes.Status423Locked, "Member account is locked.");
+                return StatusCode(StatusCodes.Status423Locked, "Tài khoản hội viên đang bị khóa.");
             case RegisterSubscriptionResult.PackageNotFound:
-                return NotFound("Membership package not found.");
+                return NotFound("Không tìm thấy gói tập.");
             case RegisterSubscriptionResult.PackageInactive:
-                return Conflict("Membership package is currently inactive.");
+                return Conflict("Gói tập hiện đang ngừng kinh doanh.");
             case RegisterSubscriptionResult.PendingOrderExists:
-                return Conflict("You already have a pending order awaiting payment.");
+                return Conflict("Bạn đang có một hóa đơn chờ thanh toán. Vui lòng hoàn tất hoặc hủy hóa đơn đó trước.");
+            case RegisterSubscriptionResult.SubscriptionSuspended:
+                return Conflict("Gói tập hiện tại của bạn đang tạm ngưng (bảo lưu). Vui lòng liên hệ quầy lễ tân mở lại gói trước khi gia hạn hoặc mua gói mới.");
+            case RegisterSubscriptionResult.UpcomingSubscriptionExists:
+                return Conflict("Bạn đã có sẵn một gói tập nối tiếp đang chờ kích hoạt trong tương lai, không thể mua chồng thêm gói mới.");
+            case RegisterSubscriptionResult.TermsAcceptanceRequired:
+                return TermsAcceptanceRequired();
+
             case RegisterSubscriptionResult.ConcurrencyConflict:
-                return Conflict("Data was modified by another transaction or deadlock occurred. Please retry.");
+                return Conflict("Dữ liệu vừa được thay đổi bởi giao dịch khác. Vui lòng thử lại.");
             default:
                 return StatusCode(StatusCodes.Status500InternalServerError);
         }
@@ -89,39 +97,59 @@ public class MemberSubscriptionController : ControllerBase
                 return StatusCode(StatusCodes.Status201Created, receipt);
             case CounterRegisterResult.InvalidPackageId:
             case CounterRegisterResult.InvalidMemberAccountId:
-                return BadRequest("Invalid request data.");
+                return BadRequest("Dữ liệu yêu cầu không hợp lệ.");
             case CounterRegisterResult.InvalidPaymentMethod:
-                return BadRequest("Invalid payment method. Allowed methods: CASH, BANK_TRANSFER, CARD.");
+                return BadRequest("Phương thức thanh toán không hợp lệ. Chỉ hỗ trợ: CASH, BANK_TRANSFER, CARD.");
             case CounterRegisterResult.StaffNotFound:
-                return NotFound("Staff account not found.");
+                return NotFound("Không tìm thấy tài khoản nhân viên.");
             case CounterRegisterResult.MemberNotFound:
-                return NotFound("Member account not found.");
+                return NotFound("Không tìm thấy tài khoản hội viên.");
             case CounterRegisterResult.PackageNotFound:
-                return NotFound("Membership package not found.");
+                return NotFound("Không tìm thấy gói tập.");
             case CounterRegisterResult.StaffRoleNotAllowed:
-                return StatusCode(StatusCodes.Status403Forbidden, "Staff account does not have required permissions.");
+                return StatusCode(StatusCodes.Status403Forbidden, "Tài khoản nhân viên không có quyền thực hiện thao tác này.");
             case CounterRegisterResult.StaffInactive:
-                return StatusCode(StatusCodes.Status403Forbidden, "Staff account is inactive.");
+                return StatusCode(StatusCodes.Status403Forbidden, "Tài khoản nhân viên đang ngừng hoạt động.");
             case CounterRegisterResult.MemberInactive:
-                return StatusCode(StatusCodes.Status403Forbidden, "Member account is inactive.");
+                return StatusCode(StatusCodes.Status403Forbidden, "Tài khoản hội viên đang ngừng hoạt động.");
             case CounterRegisterResult.StaffLocked:
-                return StatusCode(StatusCodes.Status423Locked, "Staff account is locked.");
+                return StatusCode(StatusCodes.Status423Locked, "Tài khoản nhân viên đang bị khóa.");
             case CounterRegisterResult.MemberLocked:
-                return StatusCode(StatusCodes.Status423Locked, "Member account is locked.");
+                return StatusCode(StatusCodes.Status423Locked, "Tài khoản hội viên đang bị khóa.");
             case CounterRegisterResult.PackageInactive:
-                return Conflict("Membership package is currently inactive.");
+                return Conflict("Gói tập hiện đang ngừng kinh doanh.");
             case CounterRegisterResult.PendingOrderExists when pendingInfo is not null:
                 return Conflict(pendingInfo);
             case CounterRegisterResult.PendingOrderExists:
-                return Conflict("Member already has a pending order awaiting payment.");
+                return Conflict("Hội viên đang có hóa đơn chờ thanh toán.");
+            case CounterRegisterResult.SubscriptionSuspended:
+                return Conflict("Gói tập hiện tại của hội viên đang tạm ngưng (bảo lưu). Vui lòng kích hoạt mở lại gói trước khi gia hạn.");
+            case CounterRegisterResult.UpcomingSubscriptionExists:
+                return Conflict("Hội viên đã có sẵn một gói tập nối tiếp đang chờ bắt đầu, không thể gia hạn chồng thêm kỳ mới.");
+            case CounterRegisterResult.TermsAcceptanceRequired:
+                return TermsAcceptanceRequired();
+
             case CounterRegisterResult.InvoiceNumberCollision:
-                return Conflict("Invoice number collision occurred. Please retry.");
+                return Conflict("Xung đột mã hóa đơn khi xử lý đồng thời. Vui lòng thử lại.");
             case CounterRegisterResult.ConcurrencyConflict:
-                return Conflict("Data was modified by another transaction or deadlock occurred. Please retry.");
+                return Conflict("Dữ liệu vừa được thay đổi bởi giao dịch khác. Vui lòng thử lại.");
             case CounterRegisterResult.DataIntegrityViolation:
-                return StatusCode(StatusCodes.Status500InternalServerError, "Internal data integrity error.");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Dữ liệu hóa đơn hoặc gói tập không đồng nhất.");
             default:
                 return StatusCode(StatusCodes.Status500InternalServerError);
         }
+    }
+
+    private ObjectResult TermsAcceptanceRequired()
+    {
+        return StatusCode(StatusCodes.Status409Conflict, new ApiErrorResponseAPIViewModel
+        {
+            Error = new ApiErrorAPIViewModel
+            {
+                Code = "TERMS_ACCEPTANCE_REQUIRED",
+                Message = "Học viên phải tự đăng nhập, đọc và chấp nhận điều khoản hiện hành trước khi đăng ký gói."
+            },
+            TraceId = HttpContext.TraceIdentifier
+        });
     }
 }

@@ -1,4 +1,4 @@
-using APIViewModel.Account;
+﻿using APIViewModel.Account;
 using APIViewModel.Auth;
 using APIViewModel.Common;
 using Microsoft.AspNetCore.Authorization;
@@ -24,19 +24,25 @@ public class AuthController : ControllerBase
     private readonly IAccessTokenService _accessToken;
     private readonly IMemoryCache _cache;
     private readonly IEmailVerificationService _emailVerification;
+    private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _environment;
 
     public AuthController(
         IAuthService authService,
         IAccountService accountService,
         IAccessTokenService accesstoken,
         IMemoryCache cache,
-        IEmailVerificationService emailVerification)
+        IEmailVerificationService emailVerification,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         _authService = authService;
         _accountService = accountService;
         _accessToken = accesstoken;
         _cache = cache;
         _emailVerification = emailVerification;
+        _configuration = configuration;
+        _environment = environment;
     }
 
     [Authorize]
@@ -460,8 +466,22 @@ public class AuthController : ControllerBase
         return null;
     }
 
+    /// <summary>
+    /// Local-development escape hatch for walking the UI without a mailbox.
+    /// Only honoured when the host environment is Development, so setting the
+    /// switch on a deployed environment cannot weaken sign-in.
+    /// </summary>
+    private bool LoginEmailVerificationDisabled =>
+        _environment.IsDevelopment() &&
+        _configuration.GetValue("Auth:RequireLoginEmailVerification", true) == false;
+
     private VerifyEmailCodeResult VerifyLoginCode(string email, string? code)
     {
+        if (LoginEmailVerificationDisabled)
+        {
+            return VerifyEmailCodeResult.Success;
+        }
+
         VerifyEmailCodeResult result = _emailVerification.VerifyCode(email, "LOGIN", code);
         return result == VerifyEmailCodeResult.CodeNotFound
             ? _emailVerification.VerifyCode(email, "REGISTER", code)

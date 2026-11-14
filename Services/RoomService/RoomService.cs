@@ -133,7 +133,7 @@ public class RoomService : IRoomService
             Name = normalizedName,
             Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim(),
             Capacity = request.Capacity,
-            RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim().ToUpperInvariant(),
+            RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim(),
             IsActive = true,
             CreatedAt = now
         };
@@ -244,7 +244,7 @@ public class RoomService : IRoomService
         room.Name = normalizedName;
         room.Location = string.IsNullOrWhiteSpace(request.Location) ? null : request.Location.Trim();
         room.Capacity = request.Capacity;
-        room.RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim().ToUpperInvariant();
+        room.RoomType = string.IsNullOrWhiteSpace(request.RoomType) ? null : request.RoomType.Trim();
         room.UpdatedAt = now;
 
         IDbContextTransaction? transaction = operation.Transaction;
@@ -296,6 +296,27 @@ public class RoomService : IRoomService
         if (room is null)
         {
             throw new BusinessRuleException("ROOM_NOT_FOUND", "Không tìm thấy phòng tập.");
+        }
+
+        if (!isActive)
+        {
+            DateTime localNow = DateTime.UtcNow.AddHours(7);
+            DateTime today = localNow.Date;
+            TimeSpan currentTime = localNow.TimeOfDay;
+
+            int upcomingCount = await _context.ClassSessions.AsNoTracking()
+                .CountAsync(session =>
+                    session.RoomId == id &&
+                    session.Status == "SCHEDULED" &&
+                    (session.SessionDate > today ||
+                     (session.SessionDate == today && session.StartTime > currentTime)));
+
+            if (upcomingCount > 0)
+            {
+                throw new BusinessRuleException(
+                    "ROOM_HAS_UPCOMING_SESSIONS",
+                    $"Không thể ngừng hoạt động phòng tập vì đang có {upcomingCount} buổi học sắp tới được xếp tại phòng này. Vui lòng chuyển phòng hoặc hủy buổi học trước.");
+            }
         }
 
         room.IsActive = isActive;

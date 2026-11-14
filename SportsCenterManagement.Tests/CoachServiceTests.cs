@@ -4,11 +4,72 @@ using Microsoft.EntityFrameworkCore;
 using Services.AuditLogService;
 using Services.CoachService;
 using Services.PasswordHashService;
+using System.Text.Json;
 
 namespace SportsCenterManagement.Tests;
 
 public class CoachServiceTests
 {
+    [Fact]
+    public async Task GetPublicProfile_ReturnsOnlyActiveDisciplinesInStableOrder()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        Role coachRole = new() { Id = 2, Name = "Coach" };
+        Discipline yoga = CreateDiscipline(2, "Yoga", true);
+        Discipline boxing = CreateDiscipline(1, "Boxing", false);
+        Discipline fitness = CreateDiscipline(3, "Fitness", true);
+        Account account = CreateCoachAccount(coachRole, yoga, boxing);
+        account.Coach!.WorkSchedule = "Thứ 2 - Thứ 6, 08:00 - 17:00";
+        account.Coach.CoachDisciplines.Add(CreateLink(account.Coach, fitness));
+        context.AddRange(coachRole, yoga, boxing, fitness, account);
+        await context.SaveChangesAsync();
+        CoachService service = new(context, new PasswordHashService(), new AuditLogService(context));
+
+        CoachPublicProfileAPIViewModel? profile = await service.GetPublicProfileAsync(account.Id);
+
+        Assert.NotNull(profile);
+        Assert.Equal(new[] { "Fitness", "Yoga" }, profile.Disciplines.Select(item => item.DisciplineName));
+        Assert.Equal(account.Coach.WorkSchedule, profile.WorkSchedule);
+    }
+
+    [Theory]
+    [InlineData("Inactive", false)]
+    [InlineData("Active", true)]
+    public async Task GetPublicProfile_ReturnsNullForDeletedOrInactiveCoach(string status, bool deleted)
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        Role coachRole = new() { Id = 2, Name = "Coach" };
+        Discipline yoga = CreateDiscipline(1, "Yoga", true);
+        Account account = CreateCoachAccount(coachRole, yoga, CreateDiscipline(2, "Old", false));
+        account.Status = status;
+        account.DeletedAt = deleted ? DateTime.UtcNow : null;
+        context.AddRange(coachRole, yoga, account);
+        await context.SaveChangesAsync();
+        CoachService service = new(context, new PasswordHashService(), new AuditLogService(context));
+
+        Assert.Null(await service.GetPublicProfileAsync(account.Id));
+    }
+
+    [Fact]
+    public async Task PublicProfileSerialization_DoesNotContainContactOrAccountManagementFields()
+    {
+        await using SportsCenterManagementContext context = CreateContext();
+        Role coachRole = new() { Id = 2, Name = "Coach" };
+        Discipline yoga = CreateDiscipline(1, "Yoga", true);
+        Account account = CreateCoachAccount(coachRole, yoga, CreateDiscipline(2, "Old", false));
+        context.AddRange(coachRole, yoga, account);
+        await context.SaveChangesAsync();
+        CoachService service = new(context, new PasswordHashService(), new AuditLogService(context));
+
+        string json = JsonSerializer.Serialize(await service.GetPublicProfileAsync(account.Id));
+
+        Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("phone", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("isLocked", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("createdAt", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("updatedAt", json, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task CreateCoachAsync_CreatesAssignmentsAndAuditLog()
     {

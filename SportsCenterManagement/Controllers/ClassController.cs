@@ -76,6 +76,23 @@ public class ClassController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
+    /// <summary>Gán thêm một đợt lịch cho lớp đã có; buổi học hiện ngay trên lịch trung tâm.</summary>
+    [HttpPost("{id:int}/schedule")]
+    [Authorize(Roles = "CenterManager")]
+    public async Task<IActionResult> AddClassScheduleAsync(
+        [FromRoute] int id,
+        [FromBody] AddClassScheduleAPIViewModel request)
+    {
+        string? actorAccountId = GetActorAccountId();
+        if (actorAccountId is null)
+        {
+            return Unauthorized();
+        }
+
+        AddClassScheduleResultViewModel result = await _classService.AddScheduleAsync(actorAccountId, id, request);
+        return StatusCode(StatusCodes.Status201Created, result);
+    }
+
     [HttpPut("{id:int}")]
     [Authorize(Roles = "CenterManager")]
     public async Task<IActionResult> UpdateClassAsync(

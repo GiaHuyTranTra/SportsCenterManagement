@@ -96,6 +96,7 @@ public class DisciplineController : ControllerBase
             UpdateDisciplineStatusResult.Success => Ok(),
             UpdateDisciplineStatusResult.NotFound => NotFound("Discipline not found."),
             UpdateDisciplineStatusResult.NoChanges => BadRequest("No status change was provided."),
+            UpdateDisciplineStatusResult.HasActiveClassesOrSessions => Conflict("Không thể ngừng hoạt động bộ môn vì đang có lớp học đang mở hoặc buổi học sắp tới thuộc bộ môn này."),
             UpdateDisciplineStatusResult.ConcurrencyConflict => Conflict("A concurrent request conflict occurred."),
             _ => StatusCode(StatusCodes.Status500InternalServerError)
         };

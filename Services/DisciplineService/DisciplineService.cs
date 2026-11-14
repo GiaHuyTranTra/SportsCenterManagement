@@ -275,6 +275,26 @@ public class DisciplineService : IDisciplineService
             return UpdateDisciplineStatusResult.NoChanges;
         }
 
+        if (!isActive)
+        {
+            DateTime localNow = DateTime.UtcNow.AddHours(7);
+            DateTime today = localNow.Date;
+            TimeSpan currentTime = localNow.TimeOfDay;
+
+            bool hasActiveClassOrUpcomingSession = await _context.Classes.AsNoTracking()
+                .AnyAsync(c =>
+                    c.DisciplineId == disciplineId &&
+                    (c.Status == "OPEN" ||
+                     c.ClassSessions.Any(s =>
+                         s.Status == "SCHEDULED" &&
+                         (s.SessionDate > today || (s.SessionDate == today && s.StartTime > currentTime)))));
+
+            if (hasActiveClassOrUpcomingSession)
+            {
+                return UpdateDisciplineStatusResult.HasActiveClassesOrSessions;
+            }
+        }
+
         discipline.IsActive = isActive;
         discipline.UpdatedAt = DateTime.UtcNow;
         await _auditLogService.StageAuditLogAsync(

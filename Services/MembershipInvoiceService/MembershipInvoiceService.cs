@@ -219,13 +219,10 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             {
                 return (PayInvoiceResult.InvalidSubscriptionState, null);
             }
-            if (invoice.Subscription.Kind == "UPGRADE")
-            {
-                DateOnly quoteDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), vnTimeZone));
-                return (quoteDate != today ? PayInvoiceResult.QuoteExpired : PayInvoiceResult.UnsupportedOrderKind, null);
-            }
-            if (invoice.Subscription.Kind != "REGISTER" && invoice.Subscription.Kind != "RENEW")
+            string normalizedKind = invoice.Subscription.Kind.Trim().ToUpperInvariant();
+            if (normalizedKind != "REGISTER" && normalizedKind != "RENEW" &&
+                normalizedKind != "UPGRADE" && normalizedKind != "DOWNGRADE" &&
+                normalizedKind != "CHANGE")
             {
                 return (PayInvoiceResult.UnsupportedOrderKind, null);
             }
@@ -246,38 +243,55 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             {
                 return (PayInvoiceResult.PackageInactive, null);
             }
-            if (package.Price != invoice.Subscription.PackagePrice ||
-                package.DurationMonths != invoice.Subscription.DurationMonths)
-            {
-                return (PayInvoiceResult.PackageChanged, null);
-            }
-
             MemberSubscription? latestConfirmed = await _context.MemberSubscriptions
                 .Where(s => s.MemberId == memberAccountId && s.Status == "CONFIRMED" && s.Id != invoice.Subscription.Id)
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefaultAsync();
-
-            string kind;
-            DateOnly startDate;
-
+            DateTime nowUtc = DateTime.UtcNow;
+            DateOnly businessToday = DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTimeFromUtc(nowUtc, vnTimeZone));
+            DateOnly orderDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(invoice.CreatedAt, DateTimeKind.Utc), vnTimeZone));
+            DateOnly expectedStart;
+            string expectedKind;
             if (latestConfirmed is null)
             {
-                kind = "REGISTER";
-                startDate = today;
+                expectedStart = orderDate;
+                expectedKind = "REGISTER";
+            }
+            else if (latestConfirmed.EndDate < orderDate)
+            {
+                expectedStart = orderDate;
+                expectedKind = latestConfirmed.PackageId == invoice.Subscription.PackageId ? "RENEW" : "REGISTER";
             }
             else
             {
-                kind = "RENEW";
-                startDate = latestConfirmed.EndDate >= today ? latestConfirmed.EndDate.AddDays(1) : today;
+                expectedStart = latestConfirmed.EndDate.AddDays(1);
+                expectedKind = latestConfirmed.PackageId == invoice.Subscription.PackageId
+                    ? "RENEW"
+                    : invoice.Subscription.PackagePrice > latestConfirmed.PackagePrice
+                        ? "UPGRADE"
+                        : invoice.Subscription.PackagePrice < latestConfirmed.PackagePrice
+                            ? "DOWNGRADE"
+                            : "CHANGE";
+            }
+            DateOnly expectedEnd = invoice.Subscription.StartDate
+                .AddMonths(invoice.Subscription.DurationMonths).AddDays(-1);
+            if (invoice.Subscription.StartDate != expectedStart ||
+                invoice.Subscription.EndDate != expectedEnd ||
+                normalizedKind != expectedKind)
+            {
+                return (PayInvoiceResult.InvalidSubscriptionState, null);
             }
 
-            DateOnly endDate = startDate.AddMonths(invoice.Subscription.DurationMonths).AddDays(-1);
-
-            DateTime nowUtc = DateTime.UtcNow;
+            if (expectedStart < businessToday)
+            {
+                invoice.Subscription.StartDate = businessToday;
+                invoice.Subscription.EndDate = businessToday
+                    .AddMonths(invoice.Subscription.DurationMonths)
+                    .AddDays(-1);
+            }
             invoice.Subscription.Status = "CONFIRMED";
-            invoice.Subscription.Kind = kind;
-            invoice.Subscription.StartDate = startDate;
-            invoice.Subscription.EndDate = endDate;
 
             invoice.Status = "PAID";
             invoice.PaymentMethod = normalizedPaymentMethod;
@@ -312,6 +326,8 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 PaidByStaffName = staffFullName,
                 SubscriptionId = invoice.Subscription.Id,
                 SubscriptionStatus = invoice.Subscription.Status,
+                IsSuspended = invoice.Subscription.IsSuspended,
+                SuspensionReason = invoice.Subscription.SuspensionReason,
                 Kind = invoice.Subscription.Kind,
                 StartDate = invoice.Subscription.StartDate,
                 EndDate = invoice.Subscription.EndDate,
@@ -446,6 +462,8 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             PaidByStaffName = paidByStaffName,
             SubscriptionId = invoice.Subscription.Id,
             SubscriptionStatus = invoice.Subscription.Status,
+            IsSuspended = invoice.Subscription.IsSuspended,
+            SuspensionReason = invoice.Subscription.SuspensionReason,
             Kind = invoice.Subscription.Kind,
             StartDate = invoice.Subscription.StartDate,
             EndDate = invoice.Subscription.EndDate,
@@ -469,19 +487,21 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
         string? search = null, string? paymentMethod = null)
     {
         PagedMembershipInvoiceAPIViewModel result = await QueryInvoicesAsync(
-            staffAccountId, memberId, status, search, paymentMethod);
+            staffAccountId, memberId, status, search, paymentMethod, null, 20, null, null);
         return result.Items;
     }
 
     public Task<PagedMembershipInvoiceAPIViewModel> SearchInvoicesAsync(
         string callerAccountId, string? memberId, string? status, string? search,
-        string? paymentMethod, int page, int pageSize)
+        string? paymentMethod, int page, int pageSize,
+        DateOnly? fromDate = null, DateOnly? toDate = null)
     {
         if (page < 1 || pageSize < 1 || pageSize > 100 || page > int.MaxValue / pageSize)
         {
             throw new ArgumentOutOfRangeException(nameof(page));
         }
-        return QueryInvoicesAsync(callerAccountId, memberId, status, search, paymentMethod, page, pageSize);
+        return QueryInvoicesAsync(
+            callerAccountId, memberId, status, search, paymentMethod, page, pageSize, fromDate, toDate);
     }
 
     private async Task<PagedMembershipInvoiceAPIViewModel> QueryInvoicesAsync(
@@ -489,7 +509,8 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
         string? memberId = null,
         string? status = null,
         string? search = null,
-        string? paymentMethod = null, int? page = null, int pageSize = 20)
+        string? paymentMethod = null, int? page = null, int pageSize = 20,
+        DateOnly? fromDate = null, DateOnly? toDate = null)
     {
         Account? caller = await _context.Accounts
             .Include(a => a.Role)
@@ -553,7 +574,40 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 i.Member.MemberCode.Contains(trimmedSearch));
         }
 
+        if (fromDate.HasValue || toDate.HasValue)
+        {
+            // CreatedAt is stored in UTC; the counter filters by the centre's
+            // own calendar day, so the bounds are converted the same way the
+            // revenue report converts them.
+            TimeZoneInfo centreTimeZone = TimeZoneInfo.FindSystemTimeZoneById(
+                _configuration["BusinessSettings:TimeZoneId"]
+                    ?? throw new InvalidOperationException("BusinessSettings:TimeZoneId is not configured."));
+
+            if (fromDate.HasValue)
+            {
+                DateTime fromUtc = TimeZoneInfo.ConvertTimeToUtc(
+                    fromDate.Value.ToDateTime(TimeOnly.MinValue), centreTimeZone);
+                query = query.Where(i => i.CreatedAt >= fromUtc);
+            }
+
+            if (toDate.HasValue)
+            {
+                DateTime toUtcExclusive = TimeZoneInfo.ConvertTimeToUtc(
+                    toDate.Value.AddDays(1).ToDateTime(TimeOnly.MinValue), centreTimeZone);
+                query = query.Where(i => i.CreatedAt < toUtcExclusive);
+            }
+        }
+
         int totalItems = await query.CountAsync();
+        MembershipInvoiceSummaryAPIViewModel summary = new MembershipInvoiceSummaryAPIViewModel
+        {
+            PaidCount = await query.CountAsync(i => i.Status == "PAID"),
+            PaidAmount = await query.Where(i => i.Status == "PAID").SumAsync(i => (decimal?)i.Amount) ?? 0m,
+            PendingCount = await query.CountAsync(i => i.Status == "PENDING_PAYMENT"),
+            PendingAmount = await query.Where(i => i.Status == "PENDING_PAYMENT").SumAsync(i => (decimal?)i.Amount) ?? 0m,
+            CanceledCount = await query.CountAsync(i => i.Status == "CANCELED"),
+            CanceledAmount = await query.Where(i => i.Status == "CANCELED").SumAsync(i => (decimal?)i.Amount) ?? 0m
+        };
         query = query.OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id);
         if (page.HasValue)
         {
@@ -602,6 +656,8 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 PaidByStaffName = paidByStaffName,
                 SubscriptionId = invoice.Subscription.Id,
                 SubscriptionStatus = invoice.Subscription.Status,
+                IsSuspended = invoice.Subscription.IsSuspended,
+                SuspensionReason = invoice.Subscription.SuspensionReason,
                 Kind = invoice.Subscription.Kind,
                 StartDate = invoice.Subscription.StartDate,
                 EndDate = invoice.Subscription.EndDate,
@@ -618,7 +674,14 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
             });
         }
 
-        return new PagedMembershipInvoiceAPIViewModel { Items = results, Page = page ?? 1, PageSize = pageSize, TotalItems = totalItems };
+        return new PagedMembershipInvoiceAPIViewModel
+        {
+            Items = results,
+            Page = page ?? 1,
+            PageSize = pageSize,
+            TotalItems = totalItems,
+            Summary = summary
+        };
     }
 
     public async Task<CancelInvoiceResult> CancelPendingInvoiceAsync(
@@ -697,6 +760,11 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 return CancelInvoiceResult.InvoiceNotFound;
             }
 
+            if (invoice.Status == "PAID" && invoice.Subscription?.Status == "CONFIRMED")
+            {
+                return CancelInvoiceResult.ConfirmedSubscriptionCannotBeCanceled;
+            }
+
             if (invoice.Status != "PENDING_PAYMENT")
             {
                 return CancelInvoiceResult.InvalidInvoiceState;
@@ -708,8 +776,20 @@ public partial class MembershipInvoiceService : IMembershipInvoiceService
                 return CancelInvoiceResult.InvalidInvoiceState;
             }
 
+            DateTime nowUtc = DateTime.UtcNow;
             invoice.Status = "CANCELED";
             invoice.Subscription.Status = "CANCELED";
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                AccountId = callerAccountId,
+                Action = "INVOICE_CANCELED",
+                EntityType = "MembershipInvoice",
+                EntityId = invoice.InvoiceNumber,
+                Description = $"Hủy hóa đơn chờ thanh toán {invoice.InvoiceNumber} (gói \"{invoice.Subscription.PackageName}\").",
+                CreatedAt = nowUtc
+            });
 
             await _context.SaveChangesAsync();
             if (transaction is not null)

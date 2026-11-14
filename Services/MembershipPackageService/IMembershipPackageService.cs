@@ -43,15 +43,15 @@ public interface IMembershipPackageService
     Task<MembershipPackageDetailAPIViewModel?> GetPackageByIdAsync(int id);
 
     Task<(CreatePackageResult Result, MembershipPackageDetailAPIViewModel? Package)> CreatePackageAsync(
-        MembershipPackageInputAPIViewModel request);
+        MembershipPackageInputAPIViewModel request, string? actorAccountId = null);
 
     Task<(UpdatePackageResult Result, MembershipPackageDetailAPIViewModel? Package)> UpdatePackageAsync(
         int id,
-        MembershipPackageInputAPIViewModel request);
+        MembershipPackageInputAPIViewModel request, string? actorAccountId = null);
 
-    Task<UpdatePackageStatusResult> UpdatePackageStatusAsync(int id, bool isActive);
+    Task<UpdatePackageStatusResult> UpdatePackageStatusAsync(int id, bool isActive, string? actorAccountId = null);
 
-    Task<DeletePackageResult> DeletePackageAsync(int id);
+    Task<DeletePackageResult> DeletePackageAsync(int id, string? actorAccountId = null);
 
     Task<APIViewModel.MembershipPackageSport.PackageSportsViewModel> GetPackageSportsAsync(int packageId);
 

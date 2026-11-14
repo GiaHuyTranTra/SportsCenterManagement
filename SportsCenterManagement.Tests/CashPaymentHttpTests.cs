@@ -47,7 +47,7 @@ public partial class AuthenticationIntegrationTests
             MemberSubscription subscription = new MemberSubscription { MemberId = "account-1", Package = package,
                 PackageName = package.Name, PackagePrice = package.Price, Benefits = "[]", DurationMonths = 1,
                 Kind = "REGISTER", Status = "PENDING_PAYMENT", CreatedAt = DateTime.UtcNow,
-                StartDate = DateOnly.FromDateTime(DateTime.UtcNow), EndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(1) };
+                StartDate = DateOnly.FromDateTime(DateTime.UtcNow), EndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(1).AddDays(-1) };
             MembershipInvoice invoice = new MembershipInvoice { InvoiceNumber = "HTTP-CASH-" + Guid.NewGuid().ToString("N"),
                 MemberId = "account-1", Subscription = subscription, Amount = 500000m, PaymentMethod = "CASH",
                 Status = "PENDING_PAYMENT", CreatedAt = DateTime.UtcNow, CreatedBy = actor };
@@ -109,5 +109,45 @@ public partial class AuthenticationIntegrationTests
         string body = await response.Content.ReadAsStringAsync();
         Assert.Contains("\"error\":", body);
         Assert.Contains("\"traceId\":", body);
+    }
+
+    [Fact]
+    public async Task CancelPaidSubscription_ReturnsStableConflictCode()
+    {
+        await using WebApplicationFactory<Program> factory = new AuthenticationWebApplicationFactory();
+        int invoiceId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            SportsCenterManagementContext context = scope.ServiceProvider.GetRequiredService<SportsCenterManagementContext>();
+            MembershipPackage package = new()
+            {
+                Name = "Paid package", Price = 500000m, DurationMonths = 1, Benefits = "[]",
+                IsActive = true, CreatedAt = DateTime.UtcNow
+            };
+            MemberSubscription subscription = new()
+            {
+                MemberId = "account-1", Package = package, PackageName = package.Name,
+                PackagePrice = package.Price, DurationMonths = 1, Benefits = "[]", Kind = "REGISTER",
+                Status = "CONFIRMED", StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                EndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(1).AddDays(-1), CreatedAt = DateTime.UtcNow
+            };
+            MembershipInvoice invoice = new()
+            {
+                InvoiceNumber = "PAID-CANCEL-" + Guid.NewGuid().ToString("N"), MemberId = "account-1",
+                Subscription = subscription, Amount = package.Price, PaymentMethod = "CASH", Status = "PAID",
+                PaidAt = DateTime.UtcNow, PaidBy = "manager-account", CreatedAt = DateTime.UtcNow,
+                CreatedBy = "manager-account"
+            };
+            context.MembershipInvoices.Add(invoice);
+            await context.SaveChangesAsync();
+            invoiceId = invoice.Id;
+        }
+        using HttpClient client = CreateAuthenticatedClient(factory,
+            CreateToken("manager-account", "manager@example.com", "CenterManager", DateTime.UtcNow.AddMinutes(10)));
+
+        using HttpResponseMessage response = await client.PostAsync($"/api/MembershipInvoice/{invoiceId}/cancel", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("CONFIRMED_SUBSCRIPTION_CANNOT_BE_CANCELED", await response.Content.ReadAsStringAsync());
     }
 }

@@ -1,4 +1,4 @@
-using Services.ClassScheduling;
+﻿using Services.ClassScheduling;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -236,6 +236,7 @@ public class ClassSessionService : IClassSessionService
         }
 
         await ScheduleConflict.ValidateAsync(_context, null, request.CoachId, request.RoomId, sessionDate, startTime, endTime);
+        await ValidateCoachDisciplineAsync(request.CoachId, currentClass.DisciplineId);
 
         DateTime now = DateTime.UtcNow;
         ClassSession session = new ClassSession
@@ -260,6 +261,16 @@ public class ClassSessionService : IClassSessionService
 
             await _context.ClassSessions.AddAsync(session);
             await _context.SaveChangesAsync();
+
+            await _notificationService.SendNotificationAsync(
+                session.CoachId,
+                "SESSION_COACH_CHANGED",
+                "Bạn có buổi dạy mới: lớp " + currentClass.Name,
+                "Bạn được phân công dạy lớp " + currentClass.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + " " +
+                    session.StartTime.ToString(@"hh\:mm") + "–" + session.EndTime.ToString(@"hh\:mm") + ", tại " + room.Name + ".",
+                "ClassSession",
+                session.Id.ToString(),
+                sessionDate.Date + session.StartTime);
 
             await _auditLogService.StageAuditLogAsync(
                 actorAccountId,
@@ -308,10 +319,7 @@ public class ClassSessionService : IClassSessionService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
-        {
-            throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy không thể chỉnh sửa.");
-        }
+        EnsureSessionIsScheduled(session, "Buổi học đã bị hủy không thể chỉnh sửa.", "Buổi học đã diễn ra, không thể chỉnh sửa.");
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
@@ -390,6 +398,7 @@ public class ClassSessionService : IClassSessionService
         }
 
         await ScheduleConflict.ValidateAsync(_context, id, request.CoachId, request.RoomId, sessionDate, startTime, endTime);
+        await ValidateCoachDisciplineAsync(request.CoachId, currentClass.DisciplineId);
 
         bool timeOrDateChanged = session.SessionDate != sessionDate ||
             session.StartTime != startTime ||
@@ -470,7 +479,7 @@ public class ClassSessionService : IClassSessionService
                         reg.MemberId,
                         "SESSION_RESCHEDULED",
                         "Buổi học của bạn đã được dời lịch",
-                        "Buổi học lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("yyyy-MM-dd") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
+                        "Buổi học lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("dd/MM/yyyy") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
                         "ClassSession",
                         session.Id.ToString(),
                         sessionStart);
@@ -480,7 +489,7 @@ public class ClassSessionService : IClassSessionService
                     session.CoachId,
                     "SESSION_RESCHEDULED",
                     "Lịch dạy của bạn đã thay đổi",
-                    "Buổi dạy lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("yyyy-MM-dd") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
+                    "Buổi dạy lớp " + session.Class.Name + " được chuyển sang ngày " + sessionDate.ToString("dd/MM/yyyy") + " " + startTime.ToString(@"hh\:mm") + "–" + endTime.ToString(@"hh\:mm") + ".",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -502,7 +511,7 @@ public class ClassSessionService : IClassSessionService
                         reg.MemberId,
                         "SESSION_COACH_CHANGED",
                         "Thay đổi huấn luyện viên buổi học",
-                        "Buổi học lớp " + session.Class.Name + " ngày " + sessionDate.ToString("yyyy-MM-dd") + " đã đổi huấn luyện viên.",
+                        "Buổi học lớp " + session.Class.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + " đã đổi huấn luyện viên.",
                         "ClassSession",
                         session.Id.ToString(),
                         sessionStart);
@@ -512,7 +521,7 @@ public class ClassSessionService : IClassSessionService
                     oldCoachId,
                     "SESSION_COACH_CHANGED",
                     "Bạn đã được phân công lại",
-                    "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("yyyy-MM-dd") + ".",
+                    "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + ".",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -521,7 +530,7 @@ public class ClassSessionService : IClassSessionService
                     request.CoachId,
                     "SESSION_COACH_CHANGED",
                     "Bạn có buổi dạy mới",
-                    "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("yyyy-MM-dd") + ".",
+                    "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + sessionDate.ToString("dd/MM/yyyy") + ".",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -561,10 +570,7 @@ public class ClassSessionService : IClassSessionService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
-        {
-            throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy không thể đổi huấn luyện viên.");
-        }
+        EnsureSessionIsScheduled(session, "Buổi học đã bị hủy không thể đổi huấn luyện viên.", "Buổi học đã diễn ra, không thể đổi huấn luyện viên.");
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
@@ -598,6 +604,7 @@ public class ClassSessionService : IClassSessionService
         }
 
         await ScheduleConflict.ValidateAsync(_context, id, newCoachId, session.RoomId, session.SessionDate, session.StartTime, session.EndTime);
+        await ValidateCoachDisciplineAsync(newCoachId, session.Class.DisciplineId);
 
         if (session.CoachId == newCoachId)
             return MapSession(session, await LoadCoachNamesAsync(new[] { session.CoachId }));
@@ -629,7 +636,7 @@ public class ClassSessionService : IClassSessionService
                     reg.MemberId,
                     "SESSION_COACH_CHANGED",
                     "Thay đổi huấn luyện viên buổi học",
-                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã đổi huấn luyện viên.",
+                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " đã đổi huấn luyện viên.",
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -639,7 +646,7 @@ public class ClassSessionService : IClassSessionService
                 oldCoachId,
                 "SESSION_COACH_CHANGED",
                 "Bạn đã được phân công lại",
-                "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + ".",
+                "Bạn không còn phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + ".",
                 "ClassSession",
                 session.Id.ToString(),
                 sessionStart);
@@ -648,7 +655,7 @@ public class ClassSessionService : IClassSessionService
                 newCoachId,
                 "SESSION_COACH_CHANGED",
                 "Bạn có buổi dạy mới",
-                "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + ".",
+                "Bạn được phân công phụ trách buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + ".",
                 "ClassSession",
                 session.Id.ToString(),
                 sessionStart);
@@ -793,10 +800,7 @@ public class ClassSessionService : IClassSessionService
             throw new BusinessRuleException("SESSION_NOT_FOUND", "Không tìm thấy buổi học.");
         }
 
-        if (session.Status != "SCHEDULED")
-        {
-            throw new BusinessRuleException("SESSION_CANCELLED", "Buổi học đã bị hủy trước đó.");
-        }
+        EnsureSessionIsScheduled(session, "Buổi học đã bị hủy trước đó.", "Buổi học đã diễn ra, không thể hủy.");
 
         DateTime localNow = DateTime.UtcNow.AddHours(7);
         DateTime today = localNow.Date;
@@ -844,7 +848,7 @@ public class ClassSessionService : IClassSessionService
                     reg.MemberId,
                     "SESSION_CANCELED",
                     "Buổi học bạn đã đăng ký bị hủy",
-                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã bị hủy. Lý do: " + normalizedReason,
+                    "Buổi học lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " đã bị hủy. Lý do: " + normalizedReason,
                     "ClassSession",
                     session.Id.ToString(),
                     sessionStart);
@@ -855,7 +859,7 @@ public class ClassSessionService : IClassSessionService
                 session.CoachId,
                 "SESSION_CANCELED",
                 "Buổi dạy của bạn đã bị hủy",
-                "Buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("yyyy-MM-dd") + " đã bị hủy. Lý do: " + normalizedReason,
+                "Buổi dạy lớp " + session.Class.Name + " ngày " + session.SessionDate.ToString("dd/MM/yyyy") + " đã bị hủy. Lý do: " + normalizedReason,
                 "ClassSession",
                 session.Id.ToString(),
                 coachSessionStart);
@@ -964,6 +968,27 @@ public class ClassSessionService : IClassSessionService
         };
     }
 
+    /// <summary>
+    /// Only a SCHEDULED session can be edited, reassigned or cancelled. A
+    /// COMPLETED one took place, so it is reported as such instead of being
+    /// called "cancelled".
+    /// </summary>
+    private static void EnsureSessionIsScheduled(
+        ClassSession session,
+        string cancelledMessage,
+        string completedMessage)
+    {
+        if (session.Status == "CANCELED")
+        {
+            throw new BusinessRuleException("SESSION_CANCELLED", cancelledMessage);
+        }
+
+        if (session.Status != "SCHEDULED")
+        {
+            throw new BusinessRuleException("SESSION_ALREADY_STARTED", completedMessage);
+        }
+    }
+
     private static (DateTime sessionDate, TimeSpan startTime, TimeSpan endTime) ParseSessionTimes(
         string dateStr,
         string startTimeStr,
@@ -1001,7 +1026,43 @@ public class ClassSessionService : IClassSessionService
                 new Dictionary<string, string[]> { { "endTime", new[] { "Giờ kết thúc phải sau giờ bắt đầu." } } });
         }
 
+        if (!CentreTimeSlots.IsCentreSlot(startTime, endTime))
+        {
+            throw new BusinessRuleException(
+                "SESSION_TIME_NOT_A_SLOT",
+                "Buổi học phải nằm trong khung giờ cố định của trung tâm.",
+                new Dictionary<string, string[]>
+                {
+                    { "startTime", new[] { "Khung giờ hợp lệ: " + CentreTimeSlots.Describe() + "." } }
+                });
+        }
+
         return (sessionDate.Date, startTime, endTime);
+    }
+
+    private async Task ValidateCoachDisciplineAsync(string coachId, int disciplineId)
+    {
+        bool hasConfiguredDisciplines = await _context.CoachDisciplines.AsNoTracking()
+            .AnyAsync(cd => cd.CoachAccountId == coachId);
+
+        if (!hasConfiguredDisciplines)
+        {
+            return;
+        }
+
+        bool teachesDiscipline = await _context.CoachDisciplines.AsNoTracking()
+            .AnyAsync(cd => cd.CoachAccountId == coachId && cd.DisciplineId == disciplineId);
+
+        if (!teachesDiscipline)
+        {
+            throw new BusinessRuleException(
+                "COACH_DISCIPLINE_MISMATCH",
+                "Huấn luyện viên không phụ trách bộ môn của lớp học này.",
+                new Dictionary<string, string[]>
+                {
+                    { "coachId", new[] { "Huấn luyện viên không phụ trách bộ môn của lớp học này." } }
+                });
+        }
     }
 
     private async Task<Dictionary<string, string>> LoadCoachNamesAsync(IEnumerable<string> coachIds)

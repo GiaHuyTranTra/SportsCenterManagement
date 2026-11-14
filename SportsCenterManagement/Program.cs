@@ -16,6 +16,7 @@ using Services.ClassReportService;
 using Services.ScheduleQueryService;
 using Services.AccessTokenService;
 using Services.AuditLogService;
+using Services.HomeworkAssignmentService;
 using Services.AuthService;
 using Services.CoachService;
 using Services.DisciplineService;
@@ -25,6 +26,7 @@ using Services.MemberService;
 using Services.MembershipPackageService;
 using Services.MembershipInvoiceService;
 using Services.MemberSubscriptionService;
+using Services.MembershipTermsService;
 using Services.PasswordHashService;
 using Services.ReceptionistService;
 using Services.RoomService;
@@ -33,6 +35,7 @@ using Services.ClassSessionService;
 using Services.ClassRegistrationService;
 using Services.NotificationService;
 using Services.Utils;
+using SportsCenterManagement.BackgroundJobs;
 using SportsCenterManagement.Filter;
 using SportsCenterManagement.Middleware;
 using System.Collections.Generic;
@@ -85,6 +88,8 @@ public class Program
 
         builder.Services.AddDbContext<SportsCenterManagementContext>(options =>
             options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+        builder.Services.AddHostedService<SessionCompletionService>();
 
         builder.Services.Configure<JwtOptions>(
             builder.Configuration.GetSection(JwtOptions.SectionName));
@@ -224,6 +229,7 @@ public class Program
             containerBuilder.RegisterType<ClassReportService>().As<IClassReportService>();
             containerBuilder.RegisterType<ScheduleQueryService>().As<IScheduleQueryService>();
             containerBuilder.RegisterType<AuditLogService>().As<IAuditLogService>();
+            containerBuilder.RegisterType<HomeworkAssignmentService>().As<IHomeworkAssignmentService>();
             containerBuilder.RegisterType<AuthService>().As<IAuthService>();
             containerBuilder.RegisterType<CoachService>().As<ICoachService>();
             containerBuilder.RegisterType<DisciplineService>().As<IDisciplineService>();
@@ -234,6 +240,7 @@ public class Program
             containerBuilder.RegisterType<MembershipPackageService>().As<IMembershipPackageService>();
             containerBuilder.RegisterType<MembershipInvoiceService>().As<IMembershipInvoiceService>();
             containerBuilder.RegisterType<MemberSubscriptionService>().As<IMemberSubscriptionService>();
+            containerBuilder.RegisterType<MembershipTermsService>().As<IMembershipTermsService>();
             containerBuilder.RegisterType<AccessTokenService>().As<IAccessTokenService>();
             containerBuilder.RegisterType<PasswordHashService>().As<IPasswordHashService>();
             containerBuilder.RegisterType<ReceptionistService>().As<IReceptionistService>();

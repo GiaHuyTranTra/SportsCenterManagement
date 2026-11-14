@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -9,6 +9,7 @@ using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Services.PasswordHashService;
+using Services.Utils;
 
 namespace Services.MemberService;
 
@@ -184,7 +185,7 @@ public class MemberService : IMemberService
     }
 
     public async Task<(CreateManagedMemberResult Result, CreateManagedMemberResponseAPIViewModel? Data)>
-        CreateManagedMemberAsync(CreateManagedMemberAPIViewModel request)
+        CreateManagedMemberAsync(CreateManagedMemberAPIViewModel request, string? actorAccountId = null)
     {
         (string? fullName, string? email, string? phone) = NormalizeManagedMember(
             request.FullName,
@@ -246,6 +247,12 @@ public class MemberService : IMemberService
         account.Member = member;
 
         _context.Accounts.Add(account);
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "MEMBER_CREATED",
+            "Member",
+            account.Id,
+            $"Tạo mới hồ sơ thành viên {fullName} ({member.MemberCode}).");
         await _context.SaveChangesAsync();
 
         return (CreateManagedMemberResult.Success, new CreateManagedMemberResponseAPIViewModel
@@ -258,7 +265,7 @@ public class MemberService : IMemberService
     public async Task<(UpdateManagedMemberResult Result, MemberDetailAPIViewModel? Data)>
         UpdateManagedMemberAsync(
             string accountId,
-            UpdateManagedMemberAPIViewModel request)
+            UpdateManagedMemberAPIViewModel request, string? actorAccountId = null)
     {
         (string? fullName, string? email, string? phone) = NormalizeManagedMember(
             request.FullName,
@@ -302,13 +309,27 @@ public class MemberService : IMemberService
         member.Account.Email = email;
         member.Account.Phone = phone;
         member.Account.Status = request.IsActive!.Value ? ActiveStatus : InactiveStatus;
+        if (!request.IsActive.Value)
+        {
+            await ReleaseUpcomingMemberBookingsAsync(
+                accountId,
+                "Tự động hủy giữ chỗ do tài khoản hội viên ngừng hoạt động.",
+                actorAccountId);
+        }
+
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "MEMBER_UPDATED",
+            "Member",
+            accountId,
+            $"Cập nhật thông tin thành viên {fullName} ({member.MemberCode}), trạng thái: {member.Account.Status}.");
         member.Account.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
         return (UpdateManagedMemberResult.Success, MapDetail(member));
     }
 
-    public async Task<DeleteMemberResult> SoftDeleteMemberAsync(string accountId)
+    public async Task<DeleteMemberResult> SoftDeleteMemberAsync(string accountId, string? actorAccountId = null)
     {
         Account? account = await _context.Accounts
             .Include(candidate => candidate.Role)
@@ -331,6 +352,16 @@ public class MemberService : IMemberService
         DateTime now = DateTime.UtcNow;
         account.Status = InactiveStatus;
         account.DeletedAt = now;
+        await ReleaseUpcomingMemberBookingsAsync(
+            accountId,
+            "Tự động hủy giữ chỗ do tài khoản hội viên đã bị xóa.",
+            actorAccountId);
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "MEMBER_DELETED",
+            "Member",
+            accountId,
+            $"Xóa mềm hồ sơ thành viên {account.Member?.FullName ?? accountId} ({account.Member?.MemberCode ?? accountId}).");
         account.UpdatedAt = now;
         await _context.SaveChangesAsync();
 
@@ -366,7 +397,7 @@ public class MemberService : IMemberService
         }
 
         if (normalizedDateOfBirth.HasValue &&
-            normalizedDateOfBirth.Value > DateOnly.FromDateTime(DateTime.Today))
+            !BirthDateRules.IsAcceptable(normalizedDateOfBirth.Value))
         {
             return UpdateMemberResult.InvalidData;
         }
@@ -451,7 +482,7 @@ public class MemberService : IMemberService
 
     public async Task<UpdateMemberStatusResult> UpdateMemberStatusAsync(
         string accountId,
-        string status)
+        string status, string? actorAccountId = null)
     {
         string? normalizedStatus = NormalizeStatus(status);
         if (normalizedStatus is null)
@@ -478,6 +509,19 @@ public class MemberService : IMemberService
         account.UpdatedAt = DateTime.UtcNow;
 
         _context.Accounts.Update(account);
+        if (normalizedStatus == InactiveStatus)
+        {
+            await ReleaseUpcomingMemberBookingsAsync(
+                accountId,
+                "Tự động hủy giữ chỗ do tài khoản hội viên bị khóa / ngừng hoạt động.",
+                actorAccountId);
+        }
+        await StageAuditLogSafeAsync(
+            actorAccountId,
+            "MEMBER_STATUS_CHANGED",
+            "Member",
+            accountId,
+            $"Cập nhật trạng thái thành viên {account.Member?.FullName ?? accountId} thành {normalizedStatus}.");
         await _context.SaveChangesAsync();
 
         return UpdateMemberStatusResult.Success;
@@ -791,7 +835,7 @@ public class MemberService : IMemberService
             !new EmailAddressAttribute().IsValid(normalizedEmail) ||
             !validPhone ||
             !dateOfBirth.HasValue ||
-            dateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow) ||
+            !BirthDateRules.IsAcceptable(dateOfBirth.Value) ||
             !isActive.HasValue)
         {
             return (null, null, null);
@@ -818,6 +862,83 @@ public class MemberService : IMemberService
     {
         byte[] randomBytes = RandomNumberGenerator.GetBytes(12);
         return "Tt9!" + Convert.ToHexString(randomBytes);
+    }
+
+    private async Task ReleaseUpcomingMemberBookingsAsync(
+        string memberAccountId,
+        string cancelReason,
+        string? actorAccountId)
+    {
+        DateTime now = DateTime.UtcNow;
+        DateTime localNow = now.AddHours(7);
+        DateTime todayDate = localNow.Date;
+        TimeSpan currentTime = localNow.TimeOfDay;
+
+        List<ClassRegistration> upcomingBookings = await _context.ClassRegistrations
+            .Include(r => r.Session)
+            .Where(r =>
+                r.MemberId == memberAccountId &&
+                r.Status == "BOOKED" &&
+                r.Session.Status == "SCHEDULED" &&
+                (r.Session.SessionDate > todayDate ||
+                 (r.Session.SessionDate == todayDate && r.Session.StartTime > currentTime)))
+            .ToListAsync();
+
+        foreach (ClassRegistration booking in upcomingBookings)
+        {
+            booking.Status = "CANCELED";
+            booking.CanceledAt = now;
+            booking.CanceledBy = string.IsNullOrWhiteSpace(actorAccountId) ? memberAccountId : actorAccountId;
+            booking.CancelReason = cancelReason;
+            if (booking.Session.BookedCount > 0)
+            {
+                booking.Session.BookedCount -= 1;
+                booking.Session.UpdatedAt = now;
+            }
+        }
+
+        List<MembershipInvoice> pendingInvoices = await _context.MembershipInvoices
+            .Include(i => i.Subscription)
+            .Where(i => i.MemberId == memberAccountId && i.Status == "PENDING_PAYMENT")
+            .ToListAsync();
+
+        foreach (MembershipInvoice pendingInvoice in pendingInvoices)
+        {
+            pendingInvoice.Status = "CANCELED";
+            if (pendingInvoice.Subscription is not null && pendingInvoice.Subscription.Status == "PENDING_PAYMENT")
+            {
+                pendingInvoice.Subscription.Status = "CANCELED";
+            }
+        }
+    }
+
+    private async Task StageAuditLogSafeAsync(
+        string? actorAccountId,
+        string action,
+        string entityType,
+        string entityId,
+        string description)
+    {
+        string? validActorId = null;
+        if (!string.IsNullOrWhiteSpace(actorAccountId))
+        {
+            bool exists = await _context.Accounts.AnyAsync(a => a.Id == actorAccountId);
+            if (exists)
+            {
+                validActorId = actorAccountId;
+            }
+        }
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            AccountId = validActorId,
+            Action = action,
+            EntityType = entityType,
+            EntityId = entityId,
+            Description = description,
+            CreatedAt = DateTime.UtcNow
+        });
     }
 
     private static MemberDetailAPIViewModel MapDetail(Member member)

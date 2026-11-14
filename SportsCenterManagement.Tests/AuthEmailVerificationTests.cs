@@ -1,10 +1,13 @@
-using APIViewModel.Auth;
+﻿using APIViewModel.Auth;
 using APIViewModel.Common;
 using DataAccess.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
 using Services.AccountService;
 using Services.AuthService;
 using Services.EmailVerificationService;
@@ -53,7 +56,11 @@ public class AuthEmailVerificationTests
         AuthController controller = new AuthController(
             new AuthService(context, AuthTestData.CreateAccessTokenService(), new PasswordHashService()),
             new AccountService(context, new PasswordHashService()),
-            AuthTestData.CreateAccessTokenService(), cache, verification)
+            AuthTestData.CreateAccessTokenService(),
+            cache,
+            verification,
+            new ConfigurationBuilder().Build(),
+            new HostingEnvironment { EnvironmentName = Environments.Production })
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
